@@ -1,0 +1,65 @@
+# Krell Backend Configuration
+
+# Agentic Flows Configuration
+agentic:
+  enabled: false
+  workflows:
+    # Example workflow structure
+    # - name: "weather_check"
+    #   trigger: "weather"
+    #   python_script: "workflows/weather.py"
+    #   enabled: true
+
+# Embedding Configuration
+embeddings:
+  provider: "local"  # Options: "openai" or "local" - using local to avoid OpenAI quota
+  model: "all-MiniLM-L6-v2"  # Local model name
+  openai_api_key: ""  # Not needed when using local embeddings
+
+# Vector Store Configuration
+vector_store:
+  collection_name: "krell_conversations"
+  persist_directory: "./data/chroma_db"
+
+# LLM Configuration (OpenAI-compatible API)
+llm:
+  model: "gpt-4o-mini"  # Model name to use
+  endpoint: "https://api.openai.com"  # OpenAI-compatible API endpoint
+  openai_api_key: ""  # OpenAI API key (can also be set via OPENAI_API_KEY env var)
+
+# TTS Configuration
+tts:
+  provider: "kyutai"
+  mode: "direct"         # Options: "direct" (in-process), "cli" (subprocess), "server" (HTTP)
+  format: "wav"
+  lang: "en-us"
+  speed: 1.0
+  device: "auto"         # Options: "auto" (GPU if available), "cuda", "cpu"
+  chunk_size: 4096       # Audio chunk size for streaming
+  max_text_length: 400   # Maximum characters per TTS chunk
+  
+  # Streaming TTS configuration (for /chat-with-tts-stream endpoint)
+  streaming:
+    enabled: true                    # Enable streaming TTS mode
+    min_sentence_length: 20          # Minimum characters before generating TTS for a sentence
+    tool_pause_duration: 0.5         # Seconds of silence during tool execution
+  
+  # Kyutai-specific settings
+  # Download model from: https://huggingface.co/kyutai/tts-1.6b-en_fr
+  # Download voices from: https://huggingface.co/kyutai/tts-voices
+  kyutai:
+    model_path: "./models/kyutai-tts-1.6b"
+    voices_path: "./models/kyutai-voices"
+    voice: "expresso/ex04-ex03_fast_001_channel1_208s.wav"  # Default voice from kyutai/tts-voices repo
+
+# Database Configuration
+database:
+  path: "./data/krell.db"
+
+# Server Configuration
+server:
+  host: "0.0.0.0"
+  port: 8000
+
+# Weather API Configuration
+openweather_api_key: "your_api_key_here"  # Get from openweathermap.org
