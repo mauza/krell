@@ -25,6 +25,8 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
+from pathlib import Path
+
 from fastapi import FastAPI, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -35,6 +37,7 @@ from api.websocket import router as websocket_router
 from database.db import ConversationDB, Database
 from config import Config
 from core.plugin_loader import PluginLoader
+from core.plugin_manager import PluginManager
 import time
 from datetime import datetime
 
@@ -47,6 +50,9 @@ db = ConversationDB(config.database_path)
 # Initialize plugin tools
 plugin_loader = PluginLoader()
 tools = plugin_loader.get_tools()
+
+# Initialize new plugin manager for runtime plugins
+plugin_manager = PluginManager(Path(config.database_path).parent)
 
 # Initialize templates
 templates = Jinja2Templates(directory="templates")
@@ -65,6 +71,11 @@ async def lifespan(app: FastAPI):
 
     # Load plugins
     logger.info(f"Loaded {len(tools)} plugin tools")
+
+    # Load runtime-installed plugins
+    runtime_tools = plugin_manager.load_plugins()
+    logger.info(f"Loaded {len(runtime_tools)} runtime plugin tools")
+
     logger.info("Krell backend started successfully!")
 
     yield
@@ -258,27 +269,55 @@ async def dashboard_test_connection(request: dict):
 @app.get("/dashboard/api/plugins")
 async def dashboard_get_plugins():
     """Get loaded plugins info for dashboard"""
-    # Simple plugin info for the new function-based loader
-    plugin_info = []
+    # Built-in plugins from PluginLoader
+    builtin_plugins = []
     for tool in tools:
-        plugin_info.append(
-            {"name": tool.__name__, "module": tool.__module__, "status": "loaded"}
+        builtin_plugins.append(
+            {
+                "name": tool.__name__,
+                "module": tool.__module__,
+                "status": "loaded",
+                "source": "builtin",
+            }
         )
-    return {"plugins": plugin_info}
+
+    # Runtime-installed plugins from PluginManager
+    runtime_plugins = []
+    for plugin in plugin_manager.list_plugins():
+        runtime_plugins.append(
+            {
+                "name": plugin["name"],
+                "version": plugin["version"],
+                "description": plugin.get("description", ""),
+                "enabled": plugin["enabled"],
+                "configured": plugin["configured"],
+                "missing_config": plugin.get("missing_config", []),
+                "source": "runtime",
+                "status": "loaded"
+                if plugin["enabled"] and plugin["configured"]
+                else "disabled",
+            }
+        )
+
+    return {"plugins": builtin_plugins, "runtime_plugins": runtime_plugins}
 
 
 @app.post("/dashboard/api/plugins/reload")
 async def dashboard_reload_plugins():
     """Reload plugins manually from dashboard"""
-    # Reload tools
+    # Reload built-in tools
     global tools
     plugin_loader.reload_plugins()
     tools = plugin_loader.get_tools()
 
+    # Reload runtime plugins
+    runtime_tools = plugin_manager.reload_plugins()
+
     return {
         "success": True,
-        "plugins_loaded": len(tools),
-        "tools_count": len(tools),
+        "builtin_plugins_loaded": len(tools),
+        "runtime_plugins_loaded": len(runtime_tools),
+        "tools_count": len(tools) + len(runtime_tools),
     }
 
 
