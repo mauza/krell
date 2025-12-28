@@ -6,10 +6,18 @@ Handles plugin installation, configuration, and lifecycle management.
 """
 
 import yaml
+import zipfile
+import tarfile
+import io
+import shutil
+import logging
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Literal
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+logger = logging.getLogger(__name__)
 
 
 # Valid config field types
@@ -294,3 +302,165 @@ class PluginConfigStorage:
                 result[field_name] = field_schema.default
 
         return result
+
+
+class PluginInstaller:
+    """Handles plugin package installation."""
+
+    def __init__(self, registry: PluginRegistry):
+        """Initialize the installer.
+
+        Args:
+            registry: Plugin registry instance
+        """
+        self.registry = registry
+        self.installed_dir = registry.installed_dir
+
+    def install(self, package_bytes: bytes, source: str = "upload") -> Dict[str, Any]:
+        """Install a plugin from a zip/tar package.
+
+        Args:
+            package_bytes: Raw bytes of the package file
+            source: Source of the package ("upload", "pypi", "git")
+
+        Returns:
+            Dict with success status and plugin info or error
+        """
+        try:
+            # Try to open as zip first, then tar
+            manifest, extracted_files = self._extract_package(package_bytes)
+
+            if manifest is None:
+                return {
+                    "success": False,
+                    "error": "Package does not contain a plugin.yaml manifest",
+                }
+
+            # Parse and validate manifest
+            try:
+                parsed_manifest = PluginManifest.from_yaml(manifest)
+            except ValueError as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid manifest: {str(e)}",
+                }
+
+            plugin_name = parsed_manifest.name
+
+            # Create plugin directory
+            plugin_dir = self.installed_dir / plugin_name
+            if plugin_dir.exists():
+                shutil.rmtree(plugin_dir)
+            plugin_dir.mkdir(parents=True)
+
+            # Write extracted files
+            for file_path, content in extracted_files.items():
+                full_path = plugin_dir / file_path
+                full_path.parent.mkdir(parents=True, exist_ok=True)
+
+                if isinstance(content, bytes):
+                    full_path.write_bytes(content)
+                else:
+                    full_path.write_text(content)
+
+            # Register in registry
+            self.registry.register_plugin(
+                name=plugin_name,
+                version=parsed_manifest.version,
+                source=source,
+            )
+
+            logger.info(f"Installed plugin: {plugin_name} v{parsed_manifest.version}")
+
+            return {
+                "success": True,
+                "name": plugin_name,
+                "version": parsed_manifest.version,
+                "description": parsed_manifest.description,
+                "config_required": [
+                    name
+                    for name, field in parsed_manifest.config.items()
+                    if field.required
+                ],
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to install plugin: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+            }
+
+    def _extract_package(self, package_bytes: bytes) -> tuple:
+        """Extract package contents.
+
+        Returns:
+            Tuple of (manifest_content, {path: content} dict)
+        """
+        manifest = None
+        files = {}
+
+        # Try zip first
+        try:
+            with zipfile.ZipFile(io.BytesIO(package_bytes), "r") as zf:
+                for name in zf.namelist():
+                    if name.endswith("/"):
+                        continue
+                    content = zf.read(name)
+
+                    # Handle nested directory structure (plugin might be in subdirectory)
+                    # Normalize path to remove leading directory if all files share one
+                    files[name] = content
+
+                    if name == "plugin.yaml" or name.endswith("/plugin.yaml"):
+                        manifest = content.decode("utf-8")
+
+                return manifest, files
+        except zipfile.BadZipFile:
+            pass
+
+        # Try tar
+        try:
+            with tarfile.open(fileobj=io.BytesIO(package_bytes), mode="r:*") as tf:
+                for member in tf.getmembers():
+                    if member.isfile():
+                        f = tf.extractfile(member)
+                        if f:
+                            content = f.read()
+                            files[member.name] = content
+
+                            if member.name == "plugin.yaml" or member.name.endswith(
+                                "/plugin.yaml"
+                            ):
+                                manifest = content.decode("utf-8")
+
+                return manifest, files
+        except tarfile.TarError:
+            pass
+
+        raise ValueError("Package is not a valid zip or tar archive")
+
+    def uninstall(self, plugin_name: str) -> Dict[str, Any]:
+        """Uninstall a plugin.
+
+        Args:
+            plugin_name: Name of the plugin to uninstall
+
+        Returns:
+            Dict with success status
+        """
+        plugin_dir = self.installed_dir / plugin_name
+
+        if plugin_dir.exists():
+            shutil.rmtree(plugin_dir)
+
+        self.registry.unregister_plugin(plugin_name)
+
+        # Also remove config
+        config_file = self.registry.config_dir / f"{plugin_name}.yaml"
+        if config_file.exists():
+            config_file.unlink()
+
+        logger.info(f"Uninstalled plugin: {plugin_name}")
+
+        return {"success": True, "name": plugin_name}

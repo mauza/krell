@@ -4,6 +4,8 @@
 import pytest
 import tempfile
 import shutil
+import zipfile
+import io
 from pathlib import Path
 
 from core.plugin_manager import PluginManifest, PluginConfigField
@@ -265,3 +267,119 @@ config:
 
         assert result["api_key"] == "secret123"
         assert result["units"] == "imperial"
+
+
+class TestPluginInstaller:
+    """Tests for plugin package installation."""
+
+    @pytest.fixture
+    def temp_data_dir(self):
+        """Create a temporary data directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield Path(temp_dir)
+        shutil.rmtree(temp_dir)
+
+    def _create_plugin_zip(
+        self, manifest_content: str, module_content: str = ""
+    ) -> bytes:
+        """Helper to create a valid plugin zip file."""
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("plugin.yaml", manifest_content)
+            if module_content:
+                zf.writestr("my_plugin/__init__.py", "")
+                zf.writestr("my_plugin/tools.py", module_content)
+        return buffer.getvalue()
+
+    def test_installs_valid_plugin_package(self, temp_data_dir):
+        """Test installing a valid plugin zip package."""
+        from core.plugin_manager import PluginInstaller, PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+        installer = PluginInstaller(registry)
+
+        manifest = """
+name: test-plugin
+version: 1.0.0
+description: A test plugin
+entry_point: my_plugin.tools
+"""
+        module = '''
+from strands import tool
+
+@tool
+def test_tool() -> dict:
+    """A test tool."""
+    return {"status": "ok"}
+'''
+        package_bytes = self._create_plugin_zip(manifest, module)
+
+        result = installer.install(package_bytes)
+
+        assert result["success"] is True
+        assert result["name"] == "test-plugin"
+        assert result["version"] == "1.0.0"
+
+        # Verify files were extracted
+        plugin_dir = temp_data_dir / "plugins" / "installed" / "test-plugin"
+        assert plugin_dir.exists()
+        assert (plugin_dir / "plugin.yaml").exists()
+        assert (plugin_dir / "my_plugin" / "tools.py").exists()
+
+    def test_rejects_package_without_manifest(self, temp_data_dir):
+        """Test that packages without plugin.yaml are rejected."""
+        from core.plugin_manager import PluginInstaller, PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+        installer = PluginInstaller(registry)
+
+        # Create zip without plugin.yaml
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zf:
+            zf.writestr("some_file.py", "# no manifest")
+
+        result = installer.install(buffer.getvalue())
+
+        assert result["success"] is False
+        assert (
+            "manifest" in result["error"].lower()
+            or "plugin.yaml" in result["error"].lower()
+        )
+
+    def test_rejects_invalid_manifest(self, temp_data_dir):
+        """Test that packages with invalid manifests are rejected."""
+        from core.plugin_manager import PluginInstaller, PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+        installer = PluginInstaller(registry)
+
+        # Create zip with invalid manifest (missing required fields)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as zf:
+            zf.writestr("plugin.yaml", "description: missing name and version")
+
+        result = installer.install(buffer.getvalue())
+
+        assert result["success"] is False
+        assert "error" in result
+
+    def test_registers_plugin_after_install(self, temp_data_dir):
+        """Test that installed plugin is registered in registry."""
+        from core.plugin_manager import PluginInstaller, PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+        installer = PluginInstaller(registry)
+
+        manifest = """
+name: registered-plugin
+version: 2.0.0
+entry_point: my_plugin.tools
+"""
+        package_bytes = self._create_plugin_zip(manifest)
+
+        installer.install(package_bytes)
+
+        plugins = registry.list_plugins()
+        assert len(plugins) == 1
+        assert plugins[0]["name"] == "registered-plugin"
+        assert plugins[0]["version"] == "2.0.0"
