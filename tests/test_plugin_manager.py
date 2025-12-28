@@ -503,3 +503,14 @@ configured_greet.__tool__ = True
         # Verify config was saved
         config = manager.get_plugin_config("config-test")
         assert config["greeting"] == "Howdy"
+
+
+def test_krell_plugins_module_exports_get_config():
+    """Test that krell.plugins module exports get_config function."""
+    from krell.plugins import get_config
+
+    assert callable(get_config)
+
+    # Should return a dict (empty by default)
+    result = get_config()
+    assert isinstance(result, dict)
