@@ -11,6 +11,9 @@ import tarfile
 import io
 import shutil
 import logging
+import importlib
+import importlib.util
+import sys
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Literal
 from dataclasses import dataclass, field
@@ -18,6 +21,18 @@ from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+
+
+# Global config context for plugins
+_current_plugin_config: Dict[str, Any] = {}
+
+
+def get_config() -> Dict[str, Any]:
+    """Get the current plugin's configuration.
+
+    This is called by plugins to access their configuration values.
+    """
+    return dict(_current_plugin_config)
 
 
 # Valid config field types
@@ -464,3 +479,220 @@ class PluginInstaller:
         logger.info(f"Uninstalled plugin: {plugin_name}")
 
         return {"success": True, "name": plugin_name}
+
+
+class PluginManager:
+    """Main interface for plugin management.
+
+    Combines registry, config storage, installer, and loader.
+    """
+
+    def __init__(self, data_dir: Path):
+        """Initialize the plugin manager.
+
+        Args:
+            data_dir: Base data directory (e.g., ./data)
+        """
+        self.data_dir = Path(data_dir)
+        self.registry = PluginRegistry(data_dir)
+        self.config_storage = PluginConfigStorage(self.registry.config_dir)
+        self.installer = PluginInstaller(self.registry)
+
+        self._loaded_tools: List[Any] = []
+        self._plugin_modules: Dict[str, Any] = {}
+
+    def install_plugin(
+        self, package_bytes: bytes, source: str = "upload"
+    ) -> Dict[str, Any]:
+        """Install a plugin from a package."""
+        return self.installer.install(package_bytes, source)
+
+    def uninstall_plugin(self, name: str) -> Dict[str, Any]:
+        """Uninstall a plugin."""
+        return self.installer.uninstall(name)
+
+    def enable_plugin(self, name: str):
+        """Enable a plugin."""
+        self.registry.set_enabled(name, True)
+
+    def disable_plugin(self, name: str):
+        """Disable a plugin."""
+        self.registry.set_enabled(name, False)
+
+    def get_plugin_config(self, name: str) -> Dict[str, Any]:
+        """Get a plugin's configuration."""
+        return self.config_storage.load(name)
+
+    def set_plugin_config(self, name: str, config: Dict[str, Any]):
+        """Set a plugin's configuration."""
+        # Load manifest to validate and apply defaults
+        plugin_dir = self.registry.installed_dir / name
+        manifest_path = plugin_dir / "plugin.yaml"
+
+        if manifest_path.exists():
+            manifest = PluginManifest.from_file(manifest_path)
+            self.config_storage.validate_config(config, manifest)
+            config = self.config_storage.apply_defaults(config, manifest)
+
+        self.config_storage.save(name, config)
+
+    def list_plugins(self) -> List[Dict[str, Any]]:
+        """List all installed plugins with their status."""
+        result = []
+
+        for plugin_info in self.registry.list_plugins():
+            name = plugin_info["name"]
+            plugin_dir = self.registry.installed_dir / name
+            manifest_path = plugin_dir / "plugin.yaml"
+
+            # Load manifest for additional info
+            manifest = None
+            if manifest_path.exists():
+                try:
+                    manifest = PluginManifest.from_file(manifest_path)
+                except Exception:
+                    pass
+
+            # Check if configured
+            config = self.config_storage.load(name)
+            missing_config = []
+
+            if manifest:
+                for field_name, field_schema in manifest.config.items():
+                    if field_schema.required and field_name not in config:
+                        missing_config.append(field_name)
+
+            result.append(
+                {
+                    **plugin_info,
+                    "description": manifest.description if manifest else "",
+                    "configured": len(missing_config) == 0,
+                    "missing_config": missing_config,
+                    "config_schema": {
+                        name: {
+                            "type": field.type,
+                            "label": field.label,
+                            "required": field.required,
+                            "default": field.default,
+                            "description": field.description,
+                            "options": field.options,
+                        }
+                        for name, field in (manifest.config.items() if manifest else {})
+                    },
+                }
+            )
+
+        return result
+
+    def get_plugin(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get detailed info about a specific plugin."""
+        plugins = self.list_plugins()
+        for plugin in plugins:
+            if plugin["name"] == name:
+                return plugin
+        return None
+
+    def load_plugins(self) -> List[Any]:
+        """Load all enabled and configured plugins.
+
+        Returns:
+            List of tool functions from loaded plugins
+        """
+        global _current_plugin_config
+
+        tools = []
+
+        for plugin_info in self.list_plugins():
+            name = plugin_info["name"]
+
+            # Skip disabled plugins
+            if not plugin_info["enabled"]:
+                logger.debug(f"Skipping disabled plugin: {name}")
+                continue
+
+            # Skip unconfigured plugins (missing required config)
+            if not plugin_info["configured"]:
+                logger.warning(
+                    f"Skipping plugin {name}: missing required config: "
+                    f"{plugin_info['missing_config']}"
+                )
+                continue
+
+            try:
+                plugin_tools = self._load_plugin(name)
+                tools.extend(plugin_tools)
+                logger.info(f"Loaded {len(plugin_tools)} tools from plugin: {name}")
+            except Exception as e:
+                logger.error(f"Failed to load plugin {name}: {e}")
+
+        self._loaded_tools = tools
+        return tools
+
+    def _load_plugin(self, name: str) -> List[Any]:
+        """Load a single plugin's tools."""
+        global _current_plugin_config
+
+        plugin_dir = self.registry.installed_dir / name
+        manifest_path = plugin_dir / "plugin.yaml"
+
+        if not manifest_path.exists():
+            raise ValueError(f"Plugin {name} has no manifest")
+
+        manifest = PluginManifest.from_file(manifest_path)
+
+        # Set up config context for this plugin
+        config = self.config_storage.load(name)
+        config = self.config_storage.apply_defaults(config, manifest)
+        _current_plugin_config = config
+
+        # Add plugin directory to sys.path temporarily
+        plugin_dir_str = str(plugin_dir)
+        if plugin_dir_str not in sys.path:
+            sys.path.insert(0, plugin_dir_str)
+
+        try:
+            # Import the entry point module
+            entry_point = manifest.entry_point
+
+            # Clear any cached import
+            if entry_point in sys.modules:
+                del sys.modules[entry_point]
+
+            module = importlib.import_module(entry_point)
+            self._plugin_modules[name] = module
+
+            # Find all @tool decorated functions
+            tools = []
+            for attr_name in dir(module):
+                attr = getattr(module, attr_name)
+                if hasattr(attr, "__tool__") or (
+                    callable(attr) and hasattr(attr, "__wrapped__")
+                ):
+                    tools.append(attr)
+
+            return tools
+
+        finally:
+            # Clean up sys.path
+            if plugin_dir_str in sys.path:
+                sys.path.remove(plugin_dir_str)
+
+    def get_tools(self) -> List[Any]:
+        """Get currently loaded tools."""
+        return self._loaded_tools
+
+    def reload_plugins(self) -> List[Any]:
+        """Reload all plugins."""
+        # Clear module cache
+        for name in list(self._plugin_modules.keys()):
+            entry_point = None
+            manifest_path = self.registry.installed_dir / name / "plugin.yaml"
+            if manifest_path.exists():
+                manifest = PluginManifest.from_file(manifest_path)
+                entry_point = manifest.entry_point
+
+            if entry_point and entry_point in sys.modules:
+                del sys.modules[entry_point]
+
+        self._plugin_modules.clear()
+        return self.load_plugins()

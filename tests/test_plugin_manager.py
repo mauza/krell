@@ -383,3 +383,123 @@ entry_point: my_plugin.tools
         assert len(plugins) == 1
         assert plugins[0]["name"] == "registered-plugin"
         assert plugins[0]["version"] == "2.0.0"
+
+
+class TestPluginManager:
+    """Tests for the main PluginManager class."""
+
+    @pytest.fixture
+    def temp_data_dir(self):
+        """Create a temporary data directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield Path(temp_dir)
+        shutil.rmtree(temp_dir)
+
+    def _create_plugin_zip(self, name: str, tool_code: str) -> bytes:
+        """Helper to create a valid plugin zip file."""
+        manifest = f"""
+name: {name}
+version: 1.0.0
+entry_point: {name.replace("-", "_")}.tools
+"""
+        module_name = name.replace("-", "_")
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("plugin.yaml", manifest)
+            zf.writestr(f"{module_name}/__init__.py", "")
+            zf.writestr(f"{module_name}/tools.py", tool_code)
+        return buffer.getvalue()
+
+    def test_manager_loads_enabled_plugins(self, temp_data_dir):
+        """Test that PluginManager loads tools from enabled plugins."""
+        from core.plugin_manager import PluginManager
+
+        manager = PluginManager(temp_data_dir)
+
+        # Install a plugin with simple tool code (no complex imports)
+        tool_code = '''
+def greet(name: str) -> str:
+    """Greet someone."""
+    return f"Hello, {name}!"
+
+# Mark as a tool
+greet.__tool__ = True
+'''
+        package = self._create_plugin_zip("greeting-plugin", tool_code)
+        manager.install_plugin(package)
+
+        # Load plugins
+        tools = manager.load_plugins()
+
+        assert len(tools) == 1
+        # Tool should be callable
+        assert callable(tools[0])
+
+    def test_manager_skips_disabled_plugins(self, temp_data_dir):
+        """Test that disabled plugins are not loaded."""
+        from core.plugin_manager import PluginManager
+
+        manager = PluginManager(temp_data_dir)
+
+        tool_code = '''
+def disabled_tool() -> str:
+    """Should not load."""
+    return "should not load"
+
+# Mark as a tool
+disabled_tool.__tool__ = True
+'''
+        package = self._create_plugin_zip("disabled-plugin", tool_code)
+        manager.install_plugin(package)
+
+        # Disable the plugin
+        manager.disable_plugin("disabled-plugin")
+
+        # Load plugins
+        tools = manager.load_plugins()
+
+        assert len(tools) == 0
+
+    def test_manager_provides_config_to_plugins(self, temp_data_dir):
+        """Test that plugins can access their configuration."""
+        from core.plugin_manager import PluginManager
+
+        manager = PluginManager(temp_data_dir)
+
+        # Install plugin that reads config
+        manifest = """
+name: config-test
+version: 1.0.0
+entry_point: config_test.tools
+config:
+  greeting:
+    type: string
+    default: "Hello"
+    label: "Greeting"
+"""
+        tool_code = '''
+def configured_greet(name: str) -> str:
+    """Greet with configured greeting."""
+    from core.plugin_manager import get_config
+    config = get_config()
+    greeting = config.get("greeting", "Hi")
+    return f"{greeting}, {name}!"
+
+# Mark as a tool
+configured_greet.__tool__ = True
+'''
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("plugin.yaml", manifest)
+            zf.writestr("config_test/__init__.py", "")
+            zf.writestr("config_test/tools.py", tool_code)
+
+        manager.install_plugin(buffer.getvalue())
+
+        # Set config
+        manager.set_plugin_config("config-test", {"greeting": "Howdy"})
+
+        # Verify config was saved
+        config = manager.get_plugin_config("config-test")
+        assert config["greeting"] == "Howdy"
