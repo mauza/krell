@@ -2,7 +2,8 @@
 Krell Backend - API Routes
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from pathlib import Path
 from api.schemas import (
     ConversationRequest,
     ConversationResponse,
@@ -21,10 +22,13 @@ from api.schemas import (
     ConversationDetailResponse,
     MessageDetailResponse,
     UpdateConversationTitleRequest,
-    JournalEntryResponse,
-    SettingsResponse,
-    SettingsUpdateRequest,
+    PluginListResponse,
+    PluginInfo,
+    PluginConfigFieldSchema,
+    PluginConfigUpdateRequest,
+    PluginUploadResponse,
 )
+from core.plugin_manager import PluginManager
 from database.db import ConversationDB, Database
 from config import Config
 from services.llm import LLMService
@@ -36,6 +40,19 @@ import asyncio
 
 router = APIRouter()
 config = Config()
+
+# Plugin manager (lazy initialization)
+_plugin_manager: Optional[PluginManager] = None
+
+
+def get_plugin_manager() -> PluginManager:
+    """Get or create the plugin manager instance."""
+    global _plugin_manager
+    if _plugin_manager is None:
+        data_dir = Path(config.database_path).parent
+        _plugin_manager = PluginManager(data_dir)
+    return _plugin_manager
+
 
 # Global agent cache
 _krell_agent: Optional["KrellAgent"] = None
@@ -486,118 +503,6 @@ async def update_conversation_title(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/journal", response_model=List[JournalEntryResponse])
-async def list_journal_entries(limit: int = 50, entry_type: Optional[str] = None):
-    """List journal entries with optional filtering."""
-    try:
-        from main import db as legacy_db
-
-        database = Database(legacy_db.db_path)
-
-        entries = await database.list_journal_entries(
-            limit=limit, entry_type=entry_type
-        )
-
-        return [
-            JournalEntryResponse(
-                id=entry["id"],
-                content=entry["content"],
-                entry_type=entry["entry_type"],
-                conversation_id=entry.get("conversation_id"),
-                created_at=entry["created_at"],
-            )
-            for entry in entries
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/journal/{entry_id}", response_model=JournalEntryResponse)
-async def get_journal_entry(entry_id: str):
-    """Get a specific journal entry."""
-    try:
-        from main import db as legacy_db
-
-        database = Database(legacy_db.db_path)
-
-        entry = await database.get_journal_entry(entry_id)
-        if not entry:
-            raise HTTPException(status_code=404, detail="Journal entry not found")
-
-        return JournalEntryResponse(
-            id=entry["id"],
-            content=entry["content"],
-            entry_type=entry["entry_type"],
-            conversation_id=entry.get("conversation_id"),
-            created_at=entry["created_at"],
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.delete("/journal/{entry_id}")
-async def delete_journal_entry(entry_id: str):
-    """Delete a journal entry."""
-    try:
-        from main import db as legacy_db
-
-        database = Database(legacy_db.db_path)
-
-        success = await database.delete_journal_entry(entry_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Journal entry not found")
-
-        return {"success": True, "message": "Journal entry deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/settings", response_model=SettingsResponse)
-async def get_settings():
-    """Get all settings with sensitive values masked."""
-    try:
-        from main import db as legacy_db
-
-        database = Database(legacy_db.db_path)
-
-        settings = await database.get_all_settings()
-
-        # Mask sensitive settings
-        sensitive_keys = ["api_key", "openai_api_key", "anthropic_api_key"]
-        for key in sensitive_keys:
-            if key in settings:
-                settings[key] = "••••••••"
-
-        return SettingsResponse(settings=settings)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/settings")
-async def update_settings(request: SettingsUpdateRequest):
-    """Update settings."""
-    try:
-        from main import db as legacy_db
-
-        database = Database(legacy_db.db_path)
-
-        # Update each setting
-        sensitive_keys = ["api_key", "openai_api_key", "anthropic_api_key"]
-
-        for key, value in request.settings.items():
-            # Encrypt sensitive settings
-            encrypt = key in sensitive_keys
-            await database.set_setting(key, str(value), encrypt=encrypt)
-
-        return {"success": True, "message": "Settings updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/admin/reload-agent")
 async def reload_agent():
     """
@@ -615,3 +520,145 @@ async def reload_agent():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Plugin Management API Endpoints (Runtime Plugin System)
+# ============================================================================
+
+
+@router.get("/plugins", response_model=PluginListResponse)
+async def list_plugins():
+    """List all installed plugins with their status."""
+    manager = get_plugin_manager()
+    plugins = manager.list_plugins()
+
+    return PluginListResponse(
+        plugins=[
+            PluginInfo(
+                name=p["name"],
+                version=p["version"],
+                description=p.get("description", ""),
+                enabled=p["enabled"],
+                configured=p["configured"],
+                missing_config=p.get("missing_config", []),
+                config_schema={
+                    name: PluginConfigFieldSchema(**field)
+                    for name, field in p.get("config_schema", {}).items()
+                },
+                source=p.get("source", "upload"),
+                installed_at=p.get("installed_at", ""),
+            )
+            for p in plugins
+        ]
+    )
+
+
+@router.post("/plugins/upload", response_model=PluginUploadResponse)
+async def upload_plugin(file: UploadFile = File(...)):
+    """Upload and install a plugin package."""
+    manager = get_plugin_manager()
+
+    content = await file.read()
+    result = manager.install_plugin(content)
+
+    return PluginUploadResponse(
+        success=result.get("success", False),
+        name=result.get("name"),
+        version=result.get("version"),
+        error=result.get("error"),
+        config_required=result.get("config_required", []),
+    )
+
+
+@router.get("/plugins/{plugin_name}", response_model=PluginInfo)
+async def get_plugin(plugin_name: str):
+    """Get details about a specific plugin."""
+    manager = get_plugin_manager()
+    plugin = manager.get_plugin(plugin_name)
+
+    if not plugin:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    return PluginInfo(
+        name=plugin["name"],
+        version=plugin["version"],
+        description=plugin.get("description", ""),
+        enabled=plugin["enabled"],
+        configured=plugin["configured"],
+        missing_config=plugin.get("missing_config", []),
+        config_schema={
+            name: PluginConfigFieldSchema(**field)
+            for name, field in plugin.get("config_schema", {}).items()
+        },
+        source=plugin.get("source", "upload"),
+        installed_at=plugin.get("installed_at", ""),
+    )
+
+
+@router.put("/plugins/{plugin_name}/config")
+async def update_plugin_config(plugin_name: str, request: PluginConfigUpdateRequest):
+    """Update a plugin's configuration."""
+    manager = get_plugin_manager()
+
+    plugin = manager.get_plugin(plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    try:
+        manager.set_plugin_config(plugin_name, request.config)
+        return {"success": True, "message": "Configuration updated"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/plugins/{plugin_name}/enable")
+async def enable_plugin(plugin_name: str):
+    """Enable a plugin."""
+    manager = get_plugin_manager()
+
+    plugin = manager.get_plugin(plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    manager.enable_plugin(plugin_name)
+    return {"success": True, "message": f"Plugin {plugin_name} enabled"}
+
+
+@router.post("/plugins/{plugin_name}/disable")
+async def disable_plugin(plugin_name: str):
+    """Disable a plugin."""
+    manager = get_plugin_manager()
+
+    plugin = manager.get_plugin(plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    manager.disable_plugin(plugin_name)
+    return {"success": True, "message": f"Plugin {plugin_name} disabled"}
+
+
+@router.delete("/plugins/{plugin_name}")
+async def delete_plugin(plugin_name: str):
+    """Uninstall a plugin."""
+    manager = get_plugin_manager()
+
+    plugin = manager.get_plugin(plugin_name)
+    if not plugin:
+        raise HTTPException(status_code=404, detail="Plugin not found")
+
+    manager.uninstall_plugin(plugin_name)
+    return {"success": True, "message": f"Plugin {plugin_name} uninstalled"}
+
+
+@router.post("/plugins/reload")
+async def reload_all_plugins():
+    """Reload all plugins."""
+    manager = get_plugin_manager()
+    tools = manager.reload_plugins()
+
+    return {
+        "success": True,
+        "message": "Plugins reloaded",
+        "tools_count": len(tools),
+    }
