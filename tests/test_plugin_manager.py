@@ -169,3 +169,99 @@ class TestPluginRegistry:
         registry.unregister_plugin("to-remove")
 
         assert len(registry.list_plugins()) == 0
+
+
+class TestPluginConfigStorage:
+    """Tests for plugin configuration storage."""
+
+    @pytest.fixture
+    def temp_data_dir(self):
+        """Create a temporary data directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield Path(temp_dir)
+        shutil.rmtree(temp_dir)
+
+    def test_save_and_load_plugin_config(self, temp_data_dir):
+        """Test saving and loading plugin configuration."""
+        from core.plugin_manager import PluginConfigStorage
+
+        storage = PluginConfigStorage(temp_data_dir / "plugins" / "config")
+
+        config = {
+            "api_key": "secret123",
+            "units": "metric",
+            "cache_duration": 300,
+        }
+
+        storage.save("weather-plugin", config)
+        loaded = storage.load("weather-plugin")
+
+        assert loaded == config
+
+    def test_load_returns_empty_for_missing_config(self, temp_data_dir):
+        """Test that loading missing config returns empty dict."""
+        from core.plugin_manager import PluginConfigStorage
+
+        storage = PluginConfigStorage(temp_data_dir / "plugins" / "config")
+
+        loaded = storage.load("nonexistent-plugin")
+
+        assert loaded == {}
+
+    def test_config_validates_against_schema(self, temp_data_dir):
+        """Test that config values are validated against manifest schema."""
+        from core.plugin_manager import PluginConfigStorage, PluginManifest
+
+        storage = PluginConfigStorage(temp_data_dir / "plugins" / "config")
+
+        manifest = PluginManifest.from_yaml("""
+name: test-plugin
+version: 1.0.0
+entry_point: test.tools
+config:
+  api_key:
+    type: secret
+    required: true
+    label: "API Key"
+  count:
+    type: int
+    default: 10
+    label: "Count"
+""")
+
+        # Missing required field
+        with pytest.raises(ValueError) as exc_info:
+            storage.validate_config({"count": 5}, manifest)
+
+        assert (
+            "api_key" in str(exc_info.value).lower()
+            or "required" in str(exc_info.value).lower()
+        )
+
+    def test_config_applies_defaults(self, temp_data_dir):
+        """Test that default values are applied for missing optional fields."""
+        from core.plugin_manager import PluginConfigStorage, PluginManifest
+
+        storage = PluginConfigStorage(temp_data_dir / "plugins" / "config")
+
+        manifest = PluginManifest.from_yaml("""
+name: test-plugin
+version: 1.0.0
+entry_point: test.tools
+config:
+  api_key:
+    type: secret
+    required: true
+    label: "API Key"
+  units:
+    type: choice
+    options: ["imperial", "metric"]
+    default: "imperial"
+    label: "Units"
+""")
+
+        config = {"api_key": "secret123"}
+        result = storage.apply_defaults(config, manifest)
+
+        assert result["api_key"] == "secret123"
+        assert result["units"] == "imperial"

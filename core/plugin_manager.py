@@ -217,3 +217,80 @@ class PluginRegistry:
     def is_enabled(self, name: str) -> bool:
         """Check if a plugin is enabled."""
         return name in self._plugins and self._plugins[name].enabled
+
+
+class PluginConfigStorage:
+    """Manages plugin configuration files."""
+
+    def __init__(self, config_dir: Path):
+        """Initialize config storage.
+
+        Args:
+            config_dir: Directory for plugin config files
+        """
+        self.config_dir = Path(config_dir)
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+
+    def _config_path(self, plugin_name: str) -> Path:
+        """Get the config file path for a plugin."""
+        return self.config_dir / f"{plugin_name}.yaml"
+
+    def save(self, plugin_name: str, config: Dict[str, Any]):
+        """Save plugin configuration."""
+        with open(self._config_path(plugin_name), "w") as f:
+            yaml.dump(config, f, default_flow_style=False)
+
+    def load(self, plugin_name: str) -> Dict[str, Any]:
+        """Load plugin configuration."""
+        path = self._config_path(plugin_name)
+        if path.exists():
+            with open(path, "r") as f:
+                return yaml.safe_load(f) or {}
+        return {}
+
+    def delete(self, plugin_name: str):
+        """Delete plugin configuration."""
+        path = self._config_path(plugin_name)
+        if path.exists():
+            path.unlink()
+
+    def validate_config(self, config: Dict[str, Any], manifest: PluginManifest) -> None:
+        """Validate config against manifest schema.
+
+        Raises:
+            ValueError: If required fields are missing or types are invalid
+        """
+        for field_name, field_schema in manifest.config.items():
+            if field_schema.required and field_name not in config:
+                raise ValueError(f"Required config field '{field_name}' is missing")
+
+            if field_name in config:
+                value = config[field_name]
+
+                # Type validation
+                if field_schema.type == "int" and not isinstance(value, int):
+                    raise ValueError(f"Config field '{field_name}' must be an integer")
+                elif field_schema.type == "float" and not isinstance(
+                    value, (int, float)
+                ):
+                    raise ValueError(f"Config field '{field_name}' must be a number")
+                elif field_schema.type == "bool" and not isinstance(value, bool):
+                    raise ValueError(f"Config field '{field_name}' must be a boolean")
+                elif (
+                    field_schema.type == "choice" and value not in field_schema.options
+                ):
+                    raise ValueError(
+                        f"Config field '{field_name}' must be one of: {field_schema.options}"
+                    )
+
+    def apply_defaults(
+        self, config: Dict[str, Any], manifest: PluginManifest
+    ) -> Dict[str, Any]:
+        """Apply default values for missing optional fields."""
+        result = dict(config)
+
+        for field_name, field_schema in manifest.config.items():
+            if field_name not in result and field_schema.default is not None:
+                result[field_name] = field_schema.default
+
+        return result
