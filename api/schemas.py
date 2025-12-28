@@ -3,7 +3,7 @@ Krell Backend - API Schemas (Pydantic Models)
 """
 
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 
 
 class ConversationRequest(BaseModel):
@@ -169,23 +169,51 @@ class UpdateConversationTitleRequest(BaseModel):
     title: str
 
 
-class JournalEntryResponse(BaseModel):
-    """Response model for journal entry"""
-
-    id: str
-    content: str
-    entry_type: str
-    conversation_id: Optional[str]
-    created_at: str
+# Plugin Management Schemas
 
 
-class SettingsResponse(BaseModel):
-    """Response model for settings"""
+class PluginConfigFieldSchema(BaseModel):
+    """Schema for a plugin configuration field."""
 
-    settings: dict
+    type: str
+    label: str
+    required: bool = False
+    default: Optional[Any] = None
+    description: str = ""
+    options: List[str] = []
 
 
-class SettingsUpdateRequest(BaseModel):
-    """Request model for updating settings"""
+class PluginInfo(BaseModel):
+    """Information about an installed plugin."""
 
-    settings: dict
+    name: str
+    version: str
+    description: str = ""
+    enabled: bool
+    configured: bool
+    missing_config: List[str] = []
+    config_schema: Dict[str, PluginConfigFieldSchema] = {}
+    source: str = "upload"
+    installed_at: str = ""
+
+
+class PluginListResponse(BaseModel):
+    """Response for listing plugins."""
+
+    plugins: List[PluginInfo]
+
+
+class PluginConfigUpdateRequest(BaseModel):
+    """Request to update plugin configuration."""
+
+    config: Dict[str, Any]
+
+
+class PluginUploadResponse(BaseModel):
+    """Response after uploading a plugin."""
+
+    success: bool
+    name: Optional[str] = None
+    version: Optional[str] = None
+    error: Optional[str] = None
+    config_required: List[str] = []
