@@ -84,3 +84,88 @@ config:
             "type" in str(exc_info.value).lower()
             or "invalid" in str(exc_info.value).lower()
         )
+
+
+class TestPluginRegistry:
+    """Tests for plugin registry (tracking installed plugins)."""
+
+    @pytest.fixture
+    def temp_data_dir(self):
+        """Create a temporary data directory."""
+        temp_dir = tempfile.mkdtemp()
+        yield Path(temp_dir)
+        shutil.rmtree(temp_dir)
+
+    def test_registry_creates_directory_structure(self, temp_data_dir):
+        """Test that registry creates required directories on init."""
+        from core.plugin_manager import PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+
+        assert (temp_data_dir / "plugins" / "installed").exists()
+        assert (temp_data_dir / "plugins" / "config").exists()
+        assert (temp_data_dir / "plugins" / "registry.yaml").exists()
+
+    def test_registry_tracks_installed_plugin(self, temp_data_dir):
+        """Test that registry can track an installed plugin."""
+        from core.plugin_manager import PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+
+        registry.register_plugin(
+            name="test-plugin",
+            version="1.0.0",
+            source="upload",
+        )
+
+        plugins = registry.list_plugins()
+        assert len(plugins) == 1
+        assert plugins[0]["name"] == "test-plugin"
+        assert plugins[0]["version"] == "1.0.0"
+        assert plugins[0]["enabled"] is True  # Default enabled
+        assert plugins[0]["source"] == "upload"
+
+    def test_registry_persists_across_instances(self, temp_data_dir):
+        """Test that registry state persists to disk."""
+        from core.plugin_manager import PluginRegistry
+
+        # First instance
+        registry1 = PluginRegistry(temp_data_dir)
+        registry1.register_plugin("persist-test", "2.0.0", "upload")
+
+        # Second instance (simulate restart)
+        registry2 = PluginRegistry(temp_data_dir)
+        plugins = registry2.list_plugins()
+
+        assert len(plugins) == 1
+        assert plugins[0]["name"] == "persist-test"
+
+    def test_registry_enable_disable_plugin(self, temp_data_dir):
+        """Test enabling and disabling plugins."""
+        from core.plugin_manager import PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+        registry.register_plugin("toggle-test", "1.0.0", "upload")
+
+        # Disable
+        registry.set_enabled("toggle-test", False)
+        plugins = registry.list_plugins()
+        assert plugins[0]["enabled"] is False
+
+        # Enable
+        registry.set_enabled("toggle-test", True)
+        plugins = registry.list_plugins()
+        assert plugins[0]["enabled"] is True
+
+    def test_registry_unregister_plugin(self, temp_data_dir):
+        """Test unregistering a plugin."""
+        from core.plugin_manager import PluginRegistry
+
+        registry = PluginRegistry(temp_data_dir)
+        registry.register_plugin("to-remove", "1.0.0", "upload")
+
+        assert len(registry.list_plugins()) == 1
+
+        registry.unregister_plugin("to-remove")
+
+        assert len(registry.list_plugins()) == 0
