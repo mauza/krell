@@ -46,6 +46,7 @@ from database.db import ConversationDB, Database
 from config import Config
 from core.plugin_loader import PluginLoader
 from core.plugin_manager import PluginManager
+from services.model_loader import verify_model_files, download_kyutai_models
 import time
 from datetime import datetime
 
@@ -75,6 +76,24 @@ async def lifespan(app: FastAPI):
     # Startup
     await db.init_db()
     logger.info("Database initialized")
+
+    # Verify and load Kyutai models (eager loading)
+    if not verify_model_files(config.tts_model_path, config.tts_voices_path):
+        logger.warning("Kyutai models not found, attempting to download...")
+        try:
+            if download_kyutai_models(config.tts_model_path, config.tts_voices_path):
+                # Verify again after download
+                if not verify_model_files(
+                    config.tts_model_path, config.tts_voices_path
+                ):
+                    raise RuntimeError("Model verification failed after download")
+            else:
+                raise RuntimeError("Failed to download Kyutai models on startup")
+        except Exception as e:
+            logger.error(f"Failed to initialize Kyutai models: {e}")
+            raise
+
+    logger.info("Kyutai models verified and ready")
     logger.info("Kyutai TTS initialized")
 
     # Load plugins
