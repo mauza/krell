@@ -3,7 +3,6 @@
 import os
 import logging
 from pathlib import Path
-import json
 
 # Import snapshot_download at module level for testability
 try:
@@ -29,20 +28,20 @@ def verify_model_files(model_path: str, voices_path: str) -> bool:
         True if both directories exist and contain files, False otherwise
     """
     if not os.path.isdir(model_path):
-        logger.info(
+        logger.warning(
             f"Model directory does not exist or is not a directory: {model_path}"
         )
         return False
 
     if not os.path.isdir(voices_path):
-        logger.info(
+        logger.warning(
             f"Voices directory does not exist or is not a directory: {voices_path}"
         )
         return False
 
     model_files = [f for f in os.listdir(model_path) if not f.startswith(".")]
     if not model_files:
-        logger.info(f"Model directory is empty: {model_path}")
+        logger.warning(f"Model directory is empty: {model_path}")
         return False
 
     voice_files = [
@@ -51,7 +50,7 @@ def verify_model_files(model_path: str, voices_path: str) -> bool:
         if f.endswith(".wav") or f.endswith(".safetensors")
     ]
     if not voice_files:
-        logger.info(f"No voice files found in voices directory: {voices_path}")
+        logger.warning(f"No voice files found in voices directory: {voices_path}")
         return False
 
     logger.info(
@@ -78,9 +77,6 @@ def download_kyutai_models(model_path: str, voices_path: str) -> bool:
         return False
 
     try:
-        if not HAS_HF_HUB:
-            raise ImportError("huggingface_hub package not available")
-
         logger.info("Starting Kyutai model downloads...")
 
         model_repo = "kyutai-moshi/moshi"  # Official repo from the package
