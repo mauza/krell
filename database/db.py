@@ -77,28 +77,6 @@ class Database:
                 ON messages(conversation_id, timestamp)
             """)
 
-            # Journal entries table
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS journal_entries (
-                    id TEXT PRIMARY KEY,
-                    content TEXT NOT NULL,
-                    entry_type TEXT NOT NULL,
-                    conversation_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
-                )
-            """)
-
-            await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_journal_created 
-                ON journal_entries(created_at DESC)
-            """)
-
-            await db.execute("""
-                CREATE INDEX IF NOT EXISTS idx_journal_type 
-                ON journal_entries(entry_type)
-            """)
-
             # Add ratings table for scoring tool
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS ratings (
@@ -329,89 +307,6 @@ class Database:
             )
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
-
-    # Journal entry CRUD operations
-
-    async def create_journal_entry(
-        self, content: str, entry_type: str, conversation_id: Optional[str] = None
-    ) -> str:
-        """Create a journal entry"""
-        entry_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat()
-
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO journal_entries (id, content, entry_type, conversation_id, created_at)
-                VALUES (?, ?, ?, ?, ?)
-            """,
-                (entry_id, content, entry_type, conversation_id, timestamp),
-            )
-            await db.commit()
-
-        return entry_id
-
-    async def get_journal_entry(self, entry_id: str) -> Optional[Dict]:
-        """Get a journal entry by ID"""
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            cursor = await db.execute(
-                """
-                SELECT id, content, entry_type, conversation_id, created_at
-                FROM journal_entries
-                WHERE id = ?
-            """,
-                (entry_id,),
-            )
-            row = await cursor.fetchone()
-
-            if row:
-                return dict(row)
-            return None
-
-    async def list_journal_entries(
-        self, limit: int = 50, entry_type: Optional[str] = None
-    ) -> List[Dict]:
-        """List journal entries with optional filtering"""
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-
-            if entry_type:
-                cursor = await db.execute(
-                    """
-                    SELECT id, content, entry_type, conversation_id, created_at
-                    FROM journal_entries
-                    WHERE entry_type = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                """,
-                    (entry_type, limit),
-                )
-            else:
-                cursor = await db.execute(
-                    """
-                    SELECT id, content, entry_type, conversation_id, created_at
-                    FROM journal_entries
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                """,
-                    (limit,),
-                )
-
-            rows = await cursor.fetchall()
-            return [dict(row) for row in rows]
-
-    async def delete_journal_entry(self, entry_id: str) -> bool:
-        """Delete a journal entry"""
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                DELETE FROM journal_entries WHERE id = ?
-            """,
-                (entry_id,),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
 
     # Rating CRUD operations
 

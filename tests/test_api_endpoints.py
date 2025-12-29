@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch, AsyncMock
 def client():
     """Create a test client for the FastAPI app."""
     from main import app
+
     return TestClient(app)
 
 
@@ -21,11 +22,13 @@ def client():
 def mock_agent():
     """Create a mock KrellAgent for testing."""
     mock = Mock()
-    mock.chat = AsyncMock(return_value={
-        "response": "This is a test response from Sarah.",
-        "conversation_id": "test-conv-id",
-        "tool_calls": []
-    })
+    mock.chat = AsyncMock(
+        return_value={
+            "response": "This is a test response from Sarah.",
+            "conversation_id": "test-conv-id",
+            "tool_calls": [],
+        }
+    )
     return mock
 
 
@@ -37,14 +40,11 @@ def mock_agent():
 def test_chat_creates_new_conversation_when_no_id_provided(client, mock_agent):
     """POST /api/chat without conversation_id should create new conversation."""
     with patch("api.routes.get_krell_agent", return_value=mock_agent):
-        response = client.post(
-            "/api/chat",
-            json={"message": "Hello, Sarah!"}
-        )
-    
+        response = client.post("/api/chat", json={"message": "Hello, Sarah!"})
+
     assert response.status_code == 200
     data = response.json()
-    
+
     assert "response" in data
     assert "conversation_id" in data
     assert "tool_calls" in data
@@ -56,22 +56,22 @@ def test_chat_creates_new_conversation_when_no_id_provided(client, mock_agent):
 def test_chat_continues_existing_conversation(client, mock_agent):
     """POST /api/chat with conversation_id should continue conversation."""
     test_conv_id = "existing-conv-id"
-    
+
     with patch("api.routes.get_krell_agent", return_value=mock_agent):
         mock_agent.chat.return_value = {
             "response": "Continuing our conversation!",
             "conversation_id": test_conv_id,
-            "tool_calls": []
+            "tool_calls": [],
         }
-        
+
         response = client.post(
             "/api/chat",
             json={
                 "conversation_id": test_conv_id,
-                "message": "Remember what we discussed?"
-            }
+                "message": "Remember what we discussed?",
+            },
         )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data["conversation_id"] == test_conv_id
@@ -86,7 +86,7 @@ def test_chat_continues_existing_conversation(client, mock_agent):
 def test_list_conversations_returns_list(client):
     """GET /api/conversations should return a list."""
     response = client.get("/api/conversations")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -100,7 +100,7 @@ def test_list_conversations_returns_list(client):
 def test_get_conversation_404_when_not_found(client):
     """GET /api/conversations/{id} should return 404 when not found."""
     response = client.get("/api/conversations/nonexistent-id")
-    
+
     assert response.status_code == 404
 
 
@@ -112,7 +112,7 @@ def test_get_conversation_404_when_not_found(client):
 def test_delete_conversation_404_when_not_found(client):
     """DELETE /api/conversations/{id} should return 404 when not found."""
     response = client.delete("/api/conversations/nonexistent-id")
-    
+
     assert response.status_code == 404
 
 
@@ -124,67 +124,9 @@ def test_delete_conversation_404_when_not_found(client):
 def test_update_conversation_title_404_when_not_found(client):
     """PATCH /api/conversations/{id} should return 404 when not found."""
     response = client.patch(
-        "/api/conversations/nonexistent-id",
-        json={"title": "New Title"}
+        "/api/conversations/nonexistent-id", json={"title": "New Title"}
     )
-    
-    assert response.status_code == 404
 
-
-# ============================================================================
-# GET /api/journal Tests
-# ============================================================================
-
-
-def test_list_journal_entries_returns_list(client):
-    """GET /api/journal should return a list."""
-    response = client.get("/api/journal")
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-
-
-def test_list_journal_entries_with_type_filter(client):
-    """GET /api/journal?entry_type=autonomous should accept filter parameter."""
-    response = client.get("/api/journal?entry_type=autonomous")
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-
-
-def test_list_journal_entries_with_limit(client):
-    """GET /api/journal?limit=2 should accept limit parameter."""
-    response = client.get("/api/journal?limit=2")
-    
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-    assert len(data) <= 2
-
-
-# ============================================================================
-# GET /api/journal/{id} Tests
-# ============================================================================
-
-
-def test_get_journal_entry_404_when_not_found(client):
-    """GET /api/journal/{id} should return 404 when not found."""
-    response = client.get("/api/journal/nonexistent-id")
-    
-    assert response.status_code == 404
-
-
-# ============================================================================
-# DELETE /api/journal/{id} Tests
-# ============================================================================
-
-
-def test_delete_journal_entry_404_when_not_found(client):
-    """DELETE /api/journal/{id} should return 404 when not found."""
-    response = client.delete("/api/journal/nonexistent-id")
-    
     assert response.status_code == 404
 
 
@@ -196,7 +138,7 @@ def test_delete_journal_entry_404_when_not_found(client):
 def test_get_settings_returns_settings_dict(client):
     """GET /api/settings should return settings dict."""
     response = client.get("/api/settings")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "settings" in data
@@ -211,14 +153,9 @@ def test_get_settings_returns_settings_dict(client):
 def test_update_settings_accepts_settings_dict(client):
     """POST /api/settings should accept settings dict."""
     response = client.post(
-        "/api/settings",
-        json={
-            "settings": {
-                "llm_model": "test-model"
-            }
-        }
+        "/api/settings", json={"settings": {"llm_model": "test-model"}}
     )
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "success" in data
@@ -233,7 +170,7 @@ def test_update_settings_accepts_settings_dict(client):
 def test_config_shows_loaded_plugins(client):
     """GET /api/config should show loaded plugins."""
     response = client.get("/api/config")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert "agentic_enabled" in data

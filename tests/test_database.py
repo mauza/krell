@@ -42,8 +42,11 @@ async def test_database_initialization_creates_tables(temp_db):
 
     assert "conversations" in tables
     assert "messages" in tables
-    assert "journal_entries" in tables
+    assert "journals" in tables
     assert "settings" in tables
+    assert "entities" in tables
+    assert "events" in tables
+    assert "ratings" in tables
 
 
 @pytest.mark.asyncio
@@ -64,8 +67,10 @@ async def test_database_initialization_creates_indices(temp_db):
         indices = [row[0] for row in await cursor.fetchall()]
 
     assert "idx_messages_conversation" in indices
-    assert "idx_journal_created" in indices
-    assert "idx_journal_type" in indices
+    assert "idx_journals_created" in indices
+    assert "idx_entities_type" in indices
+    assert "idx_entities_name" in indices
+    assert "idx_events_date" in indices
 
 
 @pytest.mark.asyncio
@@ -221,127 +226,6 @@ async def test_add_message_with_tool_calls(temp_db):
 
 
 @pytest.mark.asyncio
-async def test_create_journal_entry(temp_db):
-    """Test creating a journal entry"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    entry_id = await db.create_journal_entry(
-        content="I had a great day today!", entry_type="autonomous"
-    )
-
-    assert entry_id is not None
-    assert isinstance(entry_id, str)
-
-
-@pytest.mark.asyncio
-async def test_create_journal_entry_with_conversation_link(temp_db):
-    """Test creating a journal entry linked to a conversation"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    conv_id = await db.create_conversation(title="Test")
-    entry_id = await db.create_journal_entry(
-        content="Important moment", entry_type="user_requested", conversation_id=conv_id
-    )
-
-    entry = await db.get_journal_entry(entry_id)
-    assert entry["conversation_id"] == conv_id
-
-
-@pytest.mark.asyncio
-async def test_get_journal_entry(temp_db):
-    """Test retrieving a specific journal entry"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    entry_id = await db.create_journal_entry(
-        content="Test entry", entry_type="autonomous"
-    )
-
-    entry = await db.get_journal_entry(entry_id)
-
-    assert entry is not None
-    assert entry["id"] == entry_id
-    assert entry["content"] == "Test entry"
-    assert entry["entry_type"] == "autonomous"
-
-
-@pytest.mark.asyncio
-async def test_list_journal_entries(temp_db):
-    """Test listing journal entries"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    await db.create_journal_entry("Entry 1", "autonomous")
-    await db.create_journal_entry("Entry 2", "user_requested")
-    await db.create_journal_entry("Entry 3", "autonomous")
-
-    entries = await db.list_journal_entries()
-
-    assert len(entries) == 3
-
-
-@pytest.mark.asyncio
-async def test_list_journal_entries_filtered_by_type(temp_db):
-    """Test filtering journal entries by type"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    await db.create_journal_entry("Entry 1", "autonomous")
-    await db.create_journal_entry("Entry 2", "user_requested")
-    await db.create_journal_entry("Entry 3", "autonomous")
-
-    entries = await db.list_journal_entries(entry_type="autonomous")
-
-    assert len(entries) == 2
-    assert all(e["entry_type"] == "autonomous" for e in entries)
-
-
-@pytest.mark.asyncio
-async def test_list_journal_entries_with_limit(temp_db):
-    """Test limiting journal entries results"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    for i in range(10):
-        await db.create_journal_entry(f"Entry {i}", "autonomous")
-
-    entries = await db.list_journal_entries(limit=5)
-
-    assert len(entries) == 5
-
-
-@pytest.mark.asyncio
-async def test_delete_journal_entry(temp_db):
-    """Test deleting a journal entry"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    entry_id = await db.create_journal_entry("To delete", "autonomous")
-    success = await db.delete_journal_entry(entry_id)
-
-    assert success is True
-
-    entry = await db.get_journal_entry(entry_id)
-    assert entry is None
-
-
-@pytest.mark.asyncio
 async def test_set_setting(temp_db):
     """Test setting a configuration value"""
     from database.db import Database
@@ -416,28 +300,6 @@ async def test_cascade_delete_messages_with_conversation(temp_db):
     # Messages should be deleted too
     messages = await db.get_conversation_messages(conv_id)
     assert len(messages) == 0
-
-
-@pytest.mark.asyncio
-async def test_journal_entry_conversation_set_null_on_delete(temp_db):
-    """Test that deleting a conversation sets journal entry conversation_id to NULL"""
-    from database.db import Database
-
-    db = Database(temp_db)
-    await db.init_db()
-
-    conv_id = await db.create_conversation(title="Test")
-    entry_id = await db.create_journal_entry(
-        content="Important", entry_type="autonomous", conversation_id=conv_id
-    )
-
-    # Delete conversation
-    await db.delete_conversation(conv_id)
-
-    # Journal entry should remain but conversation_id should be NULL
-    entry = await db.get_journal_entry(entry_id)
-    assert entry is not None
-    assert entry["conversation_id"] is None
 
 
 @pytest.mark.asyncio
