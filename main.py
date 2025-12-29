@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 from pathlib import Path
 
 from typing import Optional
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -146,6 +146,18 @@ async def get_current_session(request: Request) -> Optional[str]:
         return None
 
     return token
+
+
+async def require_admin_auth_api(request: Request):
+    """Dependency to require admin auth for API routes. Returns 401 if not authenticated."""
+    if not await is_admin_password_set():
+        raise HTTPException(status_code=401, detail="Admin password not configured")
+
+    session = await get_current_session(request)
+    if not session:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    return session
 
 
 @app.get("/dashboard/setup", response_class=HTMLResponse)
@@ -271,7 +283,7 @@ async def dashboard(request: Request):
 
 
 @app.get("/dashboard/api/status")
-async def dashboard_status():
+async def dashboard_status(request: Request, _: str = Depends(require_admin_auth_api)):
     """Get system status for dashboard"""
     database = Database(db.db_path)
 
@@ -291,7 +303,9 @@ async def dashboard_status():
 
 
 @app.get("/dashboard/api/settings")
-async def dashboard_get_settings():
+async def dashboard_get_settings(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
     """Get current LLM settings for dashboard"""
     database = Database(db.db_path)
 
@@ -318,10 +332,12 @@ async def dashboard_get_settings():
 
 @app.post("/dashboard/api/settings")
 async def dashboard_update_settings(
+    request: Request,
     llm_endpoint: str = Form(...),
     llm_model: str = Form(...),
     llm_provider: str = Form("auto"),
     api_key: str = Form(""),
+    _: str = Depends(require_admin_auth_api),
 ):
     """Update LLM settings from dashboard and reload agent."""
     database = Database(db.db_path)
@@ -348,7 +364,11 @@ async def dashboard_update_settings(
 
 
 @app.post("/dashboard/api/test-connection")
-async def dashboard_test_connection(request: dict):
+async def dashboard_test_connection(
+    http_request: Request,
+    request: dict,
+    _: str = Depends(require_admin_auth_api),
+):
     """Test connection to LLM endpoint"""
     import httpx
     import json
@@ -414,7 +434,9 @@ async def dashboard_test_connection(request: dict):
 
 
 @app.get("/dashboard/api/plugins")
-async def dashboard_get_plugins():
+async def dashboard_get_plugins(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
     """Get loaded plugins info for dashboard"""
     # Built-in plugins from PluginLoader
     builtin_plugins = []
@@ -450,7 +472,9 @@ async def dashboard_get_plugins():
 
 
 @app.post("/dashboard/api/plugins/reload")
-async def dashboard_reload_plugins():
+async def dashboard_reload_plugins(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
     """Reload plugins manually from dashboard"""
     # Reload built-in tools
     global tools
@@ -469,7 +493,9 @@ async def dashboard_reload_plugins():
 
 
 @app.get("/dashboard/api/recent/conversations")
-async def dashboard_recent_conversations():
+async def dashboard_recent_conversations(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
     """Get recent conversations for dashboard"""
     database = Database(db.db_path)
     conversations = await database.list_conversations(limit=10)
@@ -477,7 +503,9 @@ async def dashboard_recent_conversations():
 
 
 @app.get("/dashboard/api/recent/journal")
-async def dashboard_recent_journal():
+async def dashboard_recent_journal(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
     """Get recent journal entries for dashboard"""
     database = Database(db.db_path)
     entries = await database.search_journals(limit=10)

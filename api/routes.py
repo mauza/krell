@@ -2,7 +2,7 @@
 Krell Backend - API Routes
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends, Request
 from pathlib import Path
 from api.schemas import (
     ConversationRequest,
@@ -106,6 +106,31 @@ async def reload_krell_agent():
         _krell_agent = await get_krell_agent()
 
     return _krell_agent
+
+
+async def require_admin_auth_api(request: Request):
+    """Require admin auth for API routes."""
+    from database.db import Database
+    from main import db
+    from auth import is_session_expired
+
+    database = Database(db.db_path)
+    password_hash = await database.get_setting("admin_password_hash")
+
+    if not password_hash:
+        raise HTTPException(status_code=401, detail="Admin password not configured")
+
+    token = request.cookies.get("krell_session")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    stored_token = await database.get_setting("admin_session_token")
+    expires = await database.get_setting("admin_session_expires")
+
+    if token != stored_token or is_session_expired(expires):
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    return token
 
 
 # Initialize services
@@ -337,7 +362,7 @@ async def delete_session(session_id: int):
 
 
 @router.post("/admin/reload-plugins")
-async def reload_plugins():
+async def reload_plugins(request: Request, _: str = Depends(require_admin_auth_api)):
     """
     Manually trigger a reload of all plugins.
 
@@ -365,7 +390,7 @@ async def reload_plugins():
 
 
 @router.get("/admin/plugins")
-async def get_plugins():
+async def get_plugins(request: Request, _: str = Depends(require_admin_auth_api)):
     """
     Get information about all loaded plugins.
 
@@ -504,7 +529,7 @@ async def update_conversation_title(
 
 
 @router.post("/admin/reload-agent")
-async def reload_agent():
+async def reload_agent(request: Request, _: str = Depends(require_admin_auth_api)):
     """
     Manually trigger agent reload.
 

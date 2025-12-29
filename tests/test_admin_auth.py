@@ -203,3 +203,84 @@ class TestLogout:
 
         assert response.status_code == 307
         assert response.headers["location"] == "/dashboard/login"
+
+
+class TestProtectedRoutes:
+    """Tests for authentication on protected routes."""
+
+    def test_dashboard_api_status_requires_auth(self, isolated_client):
+        """GET /dashboard/api/status should require auth."""
+        # Setup password first
+        isolated_client.post(
+            "/dashboard/setup",
+            data={
+                "password": "validpassword123",
+                "confirm_password": "validpassword123",
+            },
+        )
+
+        response = isolated_client.get("/dashboard/api/status")
+
+        assert response.status_code == 401
+
+    def test_dashboard_api_status_works_with_auth(self, isolated_client):
+        """GET /dashboard/api/status should work when authenticated."""
+        # Setup and login
+        isolated_client.post(
+            "/dashboard/setup",
+            data={
+                "password": "validpassword123",
+                "confirm_password": "validpassword123",
+            },
+        )
+        isolated_client.post("/dashboard/login", data={"password": "validpassword123"})
+
+        response = isolated_client.get("/dashboard/api/status")
+
+        assert response.status_code == 200
+
+    def test_admin_reload_plugins_requires_auth(self, isolated_client):
+        """POST /api/admin/reload-plugins should require auth."""
+        response = isolated_client.post("/api/admin/reload-plugins")
+
+        assert response.status_code == 401
+
+    def test_admin_plugins_requires_auth(self, isolated_client):
+        """GET /api/admin/plugins should require auth."""
+        response = isolated_client.get("/api/admin/plugins")
+
+        assert response.status_code == 401
+
+    def test_admin_reload_agent_requires_auth(self, isolated_client):
+        """POST /api/admin/reload-agent should require auth."""
+        response = isolated_client.post("/api/admin/reload-agent")
+
+        assert response.status_code == 401
+
+    def test_dashboard_api_settings_get_requires_auth(self, isolated_client):
+        """GET /dashboard/api/settings should require auth."""
+        isolated_client.post(
+            "/dashboard/setup",
+            data={
+                "password": "validpassword123",
+                "confirm_password": "validpassword123",
+            },
+        )
+
+        response = isolated_client.get("/dashboard/api/settings")
+
+        assert response.status_code == 401
+
+    def test_dashboard_api_plugins_requires_auth(self, isolated_client):
+        """GET /dashboard/api/plugins should require auth."""
+        isolated_client.post(
+            "/dashboard/setup",
+            data={
+                "password": "validpassword123",
+                "confirm_password": "validpassword123",
+            },
+        )
+
+        response = isolated_client.get("/dashboard/api/plugins")
+
+        assert response.status_code == 401
