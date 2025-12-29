@@ -22,6 +22,7 @@ async def create_event_async(
     metadata: dict = None,
 ) -> dict:
     """Create an event (async helper)."""
+    await db.init_db()
     event_id = await db.create_event(
         name, description, event_date, participants, location, metadata
     )
@@ -32,6 +33,7 @@ async def search_events_async(
     db: Database, query: str = None, participant_id: str = None, limit: int = 10
 ) -> dict:
     """Search events (async helper)."""
+    await db.init_db()
     results = await db.search_events(query, participant_id, limit)
 
     if not results:

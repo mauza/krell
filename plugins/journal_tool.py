@@ -19,6 +19,7 @@ async def create_journal_async(
     related_event_id: str = None,
 ) -> dict:
     """Create a journal entry (async helper)."""
+    await db.init_db()
     journal_id = await db.create_journal(content, related_entities, related_event_id)
     return {"success": True, "journal_id": journal_id}
 
@@ -31,6 +32,7 @@ async def search_journals_async(
     limit: int = 10,
 ) -> dict:
     """Search journals (async helper)."""
+    await db.init_db()
     results = await db.search_journals(query, entity_id, event_id, limit)
 
     if not results:

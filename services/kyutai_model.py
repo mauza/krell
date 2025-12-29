@@ -15,6 +15,8 @@ import wave
 import numpy as np
 import torch
 
+from services.gpu_utils import resolve_device, log_device_info
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,7 +26,11 @@ class KyutaiModel:
 
     This class provides:
     - Single model load at initialization (persistent in memory)
-    - GPU acceleration support via PyTorch
+    - Multi-platform GPU acceleration:
+      - NVIDIA GPUs via CUDA
+      - Apple M-series GPUs via MPS (Metal Performance Shaders)
+      - Intel GPUs via XPU (Intel Extension for PyTorch)
+      - Automatic CPU fallback when no GPU is available
     - Streaming audio generation
     - WAV format encoding
     """
@@ -41,7 +47,8 @@ class KyutaiModel:
         Args:
             model_path: Path to model directory or HuggingFace repo name
             voices_path: Path to voices directory or HuggingFace repo name
-            device: Device to use - "auto", "cuda", or "cpu"
+            device: Device to use - "auto", "cuda", "mps", "xpu", or "cpu"
+                    "auto" will detect the best available GPU automatically
         """
         self.model_path = model_path
         self.voices_path = voices_path
@@ -51,10 +58,19 @@ class KyutaiModel:
         self._sample_rate = 24000  # Kyutai TTS uses 24kHz
 
     def _resolve_device(self, device: str) -> str:
-        """Resolve device string to actual device."""
-        if device == "auto":
-            return "cuda" if torch.cuda.is_available() else "cpu"
-        return device
+        """
+        Resolve device string to actual device.
+
+        Supports:
+        - "auto": Automatically detect best available GPU (CUDA > MPS > XPU > CPU)
+        - "cuda": NVIDIA GPU
+        - "mps": Apple M-series GPU
+        - "xpu": Intel GPU
+        - "cpu": CPU fallback
+        """
+        resolved = resolve_device(device)
+        log_device_info(resolved)
+        return resolved
 
     def _initialize(self):
         """Initialize the Kyutai TTS model (lazy loading)."""

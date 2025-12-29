@@ -1,5 +1,5 @@
 # Stage 1: Builder - Install dependencies
-FROM python:3.12-slim as builder
+FROM python:3.12-slim AS builder
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -12,8 +12,8 @@ COPY pyproject.toml uv.lock ./
 
 # Install dependencies using uv
 # --frozen ensures we use the exact versions from uv.lock
-# --no-cache prevents unnecessary cache storage
-RUN uv sync --frozen --no-dev --no-cache
+# --no-dev excludes development dependencies
+RUN uv sync --frozen --no-dev
 
 # Stage 2: Runtime
 FROM python:3.12-slim
@@ -32,31 +32,34 @@ WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 
 # Copy application code
+# Core application modules
 COPY api ./api
+COPY core ./core
 COPY database ./database
-COPY rag ./rag
+COPY krell ./krell
+COPY plugins ./plugins
 COPY services ./services
-COPY config.py ./
-COPY config.yaml ./
-COPY main.py ./
+COPY templates ./templates
 
-# Copy models directory (TTS models)
+# Copy TTS models (required for Kyutai TTS)
 COPY models ./models
 
-# Create data directory for database and vector store
-RUN mkdir -p ./data/chroma_db
+# Copy configuration files
+COPY config.py config.yaml main.py ./
+
+# Create data directory for database
+RUN mkdir -p ./data
 
 # Set Python path to use the virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV PYTHONPATH="/app"
 
 # Expose the application port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# Health check using the root endpoint
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
 
 # Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-

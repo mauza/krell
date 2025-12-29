@@ -34,7 +34,7 @@ tts:
   format: "wav"
   lang: "en-us"
   speed: 1.0
-  device: "auto"         # Options: "auto" (GPU if available), "cuda", "cpu"
+  device: "auto"         # Options: "auto" (best GPU), "cuda" (NVIDIA), "mps" (Apple M-series), "xpu" (Intel), "cpu"
   chunk_size: 4096       # Audio chunk size for streaming
   max_text_length: 400   # Maximum characters per TTS chunk
   

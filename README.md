@@ -1,224 +1,219 @@
 # Krell
 
-Agentic AI backend powered by [Strands](https://github.com/emcie-co/strands) with tool calling, persistent memory, and low-latency TTS.
+A self-hosted agentic AI backend for building personal AI assistants. Krell provides tool calling, persistent memory, entity tracking, and low-latency text-to-speech — all running on your own infrastructure.
 
-## 🚀 Quick Start
+Built on [Strands Agents](https://github.com/strands-agents/sdk-python) with a hot-reloadable plugin system.
+
+## Features
+
+- **Agentic AI** — LLM-powered assistant with autonomous tool calling
+- **Entity System** — Track people, places, things, events, and experiences
+- **Persistent Memory** — SQLite-backed conversation history and journal entries
+- **Plugin System** — Hot-reloadable tools with zero-restart deployment
+- **Text-to-Speech** — Low-latency streaming TTS with Kyutai
+- **Web Dashboard** — Monitor status, configure settings, view activity
+- **OpenAI-Compatible** — Works with OpenAI, Ollama, and any compatible API
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
 ### Installation
 
-**Using uv (recommended):**
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/krell.git
+cd krell
+
 # Install dependencies
 uv sync
 
-# Run server
+# Run the server
 uv run uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-**Using pip:**
+### Configure Your LLM
+
+Krell works with any OpenAI-compatible API. Choose one:
+
+**Option A: OpenAI**
 ```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run server
-uvicorn main:app --host 0.0.0.0 --port 8000
+export OPENAI_API_KEY="your-api-key"
 ```
 
-### Setup Ollama (Local LLM)
-
+**Option B: Ollama (Local)**
 ```bash
-# Install Ollama (see https://ollama.ai)
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Pull a model
+# Install Ollama: https://ollama.ai
 ollama pull llama3.1:8b
 ```
+Then update `config.yaml`:
+```yaml
+llm:
+  endpoint: "http://localhost:11434"
+  model: "llama3.1:8b"
+```
 
-Server starts at: **http://localhost:8000**  
-Dashboard at: **http://localhost:8000/dashboard**  
-API docs at: **http://localhost:8000/docs**
+### Access the App
 
-## 📡 API Endpoints
+| URL | Description |
+|-----|-------------|
+| http://localhost:8000 | API root |
+| http://localhost:8000/docs | Interactive API docs (Swagger) |
+| http://localhost:8000/dashboard | Web dashboard |
 
-### Core
+## Project Structure
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/` | Root endpoint (welcome message) |
-| `GET` | `/api/health` | Health check |
-| `GET` | `/api/config` | Backend config + loaded plugins |
+```
+krell/
+├── api/                  # FastAPI routes and WebSocket handlers
+├── core/                 # Agent and plugin loader
+├── database/             # SQLite database and migrations
+├── docs/                 # Documentation
+├── plugins/              # Tool plugins (hot-reloadable)
+├── services/             # TTS and LLM services
+├── templates/            # Dashboard HTML templates
+├── tests/                # Test suite
+├── config.yaml           # Configuration file
+└── main.py               # Application entry point
+```
 
-### Chat
+## Configuration
 
-| Method | Endpoint | Body | Returns |
-|--------|----------|------|---------|
-| `POST` | `/api/chat` | `{"message": "...", "conversation_id": "..."}` | Chat response + conversation_id + tool_calls |
-| `POST` | `/api/chat-with-tts` | `{"message": "...", "session_id": 123}` | JSON header + WAV audio bytes |
-
-**Note:** `/api/chat` auto-creates conversation if `conversation_id` is null.
-
-### Conversations
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/conversations?limit=100` | List all conversations (newest first) |
-| `GET` | `/api/conversations/{id}` | Get conversation with all messages |
-| `DELETE` | `/api/conversations/{id}` | Delete conversation (cascades to messages) |
-| `PATCH` | `/api/conversations/{id}` | Update conversation title |
-
-### Journal
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/journal?entry_type=...&limit=50` | List journal entries (filter by type) |
-| `GET` | `/api/journal/{id}` | Get specific journal entry |
-| `DELETE` | `/api/journal/{id}` | Delete journal entry |
-
-**Entry types:** `autonomous`, `user_requested`
-
-### Settings
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/settings` | Get all settings (API keys masked as `••••••••`) |
-| `POST` | `/api/settings` | Update settings (encrypts sensitive values) |
-
-**Sensitive keys:** `api_key`, `openai_api_key`, `anthropic_api_key`
-
-### Dashboard (Web UI)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/dashboard` | Main dashboard UI (HTMX + Tailwind) |
-| `GET` | `/dashboard/api/status` | System status (uptime, counts) |
-| `GET` | `/dashboard/api/settings` | Get LLM settings for form |
-| `POST` | `/dashboard/api/settings` | Update LLM settings |
-| `POST` | `/dashboard/api/test-connection` | Test LLM connection |
-| `GET` | `/dashboard/api/plugins` | Get loaded plugins metadata |
-| `POST` | `/dashboard/api/reload-plugins` | Manual plugin reload |
-| `GET` | `/dashboard/api/recent-conversations` | Last 10 conversations |
-| `GET` | `/dashboard/api/recent-journal` | Last 10 journal entries |
-
-## 🔧 Configuration
-
-### config.yaml
+Krell uses `config.yaml` for configuration. Key settings:
 
 ```yaml
 # LLM Configuration
-llm_endpoint: "http://localhost:11434"  # Ollama or OpenAI endpoint
-llm_model: "llama3.1:8b"                # Model name
-llm_provider: "ollama"                   # or "openai"
-llm_openai_api_key: ""                   # Only for OpenAI
-
-# TTS Configuration
-tts_provider: "kyutai"
-tts_voice: "expresso/ex04-ex03_fast_001_channel1_208s.wav"
-tts_format: "wav"                        # Audio format
-tts_model_path: "./models/kyutai-tts-1.6b"
-tts_voices_path: "./models/kyutai-voices"
-tts_device: "auto"                       # or "cuda" or "cpu"
-tts_mode: "direct"
+llm:
+  model: "gpt-4o-mini"
+  endpoint: "https://api.openai.com"
+  openai_api_key: ""  # Or use OPENAI_API_KEY env var
 
 # Database
-database_path: "./data/krell.db"
+database:
+  path: "./data/krell.db"
 
 # Server
-host: "0.0.0.0"
-port: 8000
+server:
+  host: "0.0.0.0"
+  port: 8000
 ```
 
-### Runtime Settings (via API/Dashboard)
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for full configuration reference.
 
-Settings stored in database, editable via dashboard:
+## Plugins
 
-- **llm_endpoint** - LLM API endpoint
-- **llm_model** - Model name
-- **api_key** - API key (encrypted)
-- **tts_voice** - TTS voice ID
+Krell includes several built-in tools:
 
-## 🔌 Plugin System
+| Plugin | Description |
+|--------|-------------|
+| `entity_tool` | Create and manage entities (people, places, things) |
+| `event_tool` | Track events with participants and locations |
+| `journal_tool` | Create and search journal entries |
+| `rating_tool` | Rate entities and events (1-5 scale) |
+| `conversation_tool` | Search past conversations |
+| `datetime_tool` | Get current date/time |
+| `weather_tool` | Get weather information |
 
-### Available Plugins
+### Creating Custom Plugins
 
-1. **search_past_conversations** - Semantic search through conversation history
-2. **save_journal_entry** - Create journal entries (autonomous or user-requested)
-3. **get_journal_entries** - Retrieve journal entries by type
-4. **add_numbers** - Example tool (demo)
-5. **echo_message** - Example tool (demo)
-
-### Creating Plugins
-
-Create a new file in `backend/plugins/`:
+Add a new file to `plugins/`:
 
 ```python
 from strands import tool
 
 @tool
-def my_custom_tool(param: str) -> str:
+def my_custom_tool(query: str) -> str:
     """
     Description of what this tool does.
-    The LLM sees this docstring.
+    The LLM sees this docstring to decide when to use the tool.
     
     Args:
-        param: Parameter description
+        query: What to search for
         
     Returns:
-        What the tool returns
+        The search results
     """
     # Your logic here
-    return f"Result: {param}"
+    return f"Results for: {query}"
 ```
 
-**Features:**
-- ✅ Hot-reload (no server restart needed!)
-- ✅ Auto-discovery (just add file to `/plugins/`)
-- ✅ Syntax error handling
-- ✅ Thread-safe reloading
+Plugins are automatically discovered and hot-reloaded — no server restart needed.
 
-## 🗄️ Database Schema
+See [docs/PLUGINS.md](docs/PLUGINS.md) for the complete plugin development guide.
 
-### Tables
+## API Reference
 
-**conversations**
-- `id` (TEXT, PK) - UUID
-- `title` (TEXT)
-- `created_at` (TEXT, ISO8601)
-- `updated_at` (TEXT, ISO8601)
-
-**messages**
-- `id` (TEXT, PK) - UUID
-- `conversation_id` (TEXT, FK → conversations.id, CASCADE)
-- `role` (TEXT) - "user" | "assistant" | "system"
-- `content` (TEXT)
-- `tool_calls` (TEXT, JSON)
-- `timestamp` (TEXT, ISO8601)
-
-**journal_entries**
-- `id` (TEXT, PK) - UUID
-- `content` (TEXT)
-- `entry_type` (TEXT) - "autonomous" | "user_requested"
-- `conversation_id` (TEXT, FK → conversations.id, SET NULL)
-- `created_at` (TEXT, ISO8601)
-
-**settings**
-- `key` (TEXT, PK)
-- `value` (TEXT) - May be encrypted (Fernet)
-
-### Encryption
-
-Sensitive settings (API keys) are encrypted using **Fernet** (symmetric encryption).
-
-- Key stored in `data/.encryption_key` (auto-generated)
-- Only these keys are encrypted: `api_key`, `openai_api_key`, `anthropic_api_key`
-
-## 🧪 Testing
+### Chat
 
 ```bash
-# Run all tests (88 tests)
+# Send a message
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello!", "conversation_id": null}'
+```
+
+### Conversations
+
+```bash
+# List conversations
+curl http://localhost:8000/api/conversations
+
+# Get conversation with messages
+curl http://localhost:8000/api/conversations/{id}
+
+# Delete conversation
+curl -X DELETE http://localhost:8000/api/conversations/{id}
+```
+
+### Entities
+
+```bash
+# List entities
+curl http://localhost:8000/api/entities
+
+# Create entity
+curl -X POST http://localhost:8000/api/entities \
+  -H "Content-Type: application/json" \
+  -d '{"type": "person", "name": "John", "description": "Friend from work"}'
+```
+
+See [docs/API.md](docs/API.md) for the complete API reference.
+
+## Database
+
+Krell uses SQLite with the following schema:
+
+- **conversations** — Chat sessions with titles
+- **messages** — Individual messages with role and tool calls
+- **entities** — People, places, and things
+- **events** — Meetings, gatherings, experiences
+- **journals** — Reflections and diary entries
+- **ratings** — 1-5 scores for entities and events
+- **settings** — Runtime configuration (API keys encrypted)
+
+### Migrations
+
+Run database migrations:
+
+```bash
+make migrate
+```
+
+Or manually:
+
+```bash
+uv run python -m database.migrate ./data/krell.db
+```
+
+## Development
+
+### Running Tests
+
+```bash
+# Run all tests
 uv run pytest tests/ -v
 
 # Run specific test file
@@ -226,41 +221,32 @@ uv run pytest tests/test_api_endpoints.py -v
 
 # Run with coverage
 uv run pytest tests/ --cov=. --cov-report=html
-
-# Run specific test
-uv run pytest tests/test_api_endpoints.py::test_chat_creates_new_conversation -v
 ```
 
-### Test Structure
+### Makefile Commands
 
-```
-tests/
-├── test_agent.py              # KrellAgent tests (14 tests)
-├── test_api_endpoints.py      # REST API tests (14 tests)
-├── test_conversation_tool.py  # Conversation search tool (7 tests)
-├── test_dashboard.py          # Dashboard endpoints (9 tests)
-├── test_database.py           # Database operations (16 tests)
-├── test_journal_tool.py       # Journal tool (6 tests)
-└── test_plugin_loader.py      # Plugin system (12 tests)
-```
-
-All tests use temporary databases and clean up automatically.
-
-## 🐳 Docker
-
-**Build:**
 ```bash
+make build      # Build Docker image
+make run        # Build and run locally
+make migrate    # Run database migrations
+make help       # Show all commands
+```
+
+## Docker
+
+```bash
+# Build
 docker build -t krell .
-```
 
-**Run:**
-```bash
+# Run
 docker run -p 8000:8000 \
   -v $(pwd)/data:/app/data \
+  -e OPENAI_API_KEY="your-key" \
   krell
 ```
 
-**Docker Compose (recommended):**
+### Docker Compose
+
 ```yaml
 version: '3.8'
 services:
@@ -272,72 +258,29 @@ services:
       - ./data:/app/data
       - ./plugins:/app/plugins
     environment:
-      - OLLAMA_HOST=http://host.docker.internal:11434
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
 ```
 
-## 📊 Dashboard
-
-Access at **http://localhost:8000/dashboard**
-
-**Features:**
-- System status (uptime, conversation count, journal entries)
-- LLM configuration (endpoint, model, API key)
-- Test LLM connection
-- View loaded plugins
-- Manual plugin reload
-- Recent activity (conversations & journal)
-
-**Auto-updates:**
-- System status: Every 5 seconds
-- Recent activity: Every 10 seconds
-
-## 🔍 Debugging
-
-### Logs
-
-Server logs to stdout. Use systemd, pm2, or redirect:
-
-```bash
-uv run uvicorn main:app --host 0.0.0.0 --port 8000 2>&1 | tee krell.log
-```
-
-### Common Issues
-
-**Model not found:**
-```
-ResponseError: model "llama3.1:8b" not found
-```
-→ Pull model: `ollama pull llama3.1:8b`
-
-**TTS errors:**
-```
-Kyutai TTS model not initialized
-```
-→ Download models:
-- Model: https://huggingface.co/kyutai/tts-1.6b-en_fr
-- Voices: https://huggingface.co/kyutai/tts-voices
-Extract to `backend/models/kyutai-tts-1.6b/` and `backend/models/kyutai-voices/`
-
-**Database locked:**
-```
-database is locked
-```
-→ Close other connections, use WAL mode (automatic)
-
-## 🚢 Production Deployment
+## Production Deployment
 
 ### Recommended Stack
 
-- **Nginx** - Reverse proxy
-- **Systemd** - Process management
-- **Ollama** - Local LLM inference
-- **SQLite** - Database (auto-backup recommended)
+- **Reverse Proxy** — Nginx or Caddy for HTTPS
+- **Process Manager** — systemd or Docker
+- **Database Backups** — Automated SQLite backups
 
-### Example systemd service
+### Security Considerations
+
+- The dashboard has **no authentication** by default — add auth or firewall it
+- API keys are encrypted at rest using Fernet
+- Use HTTPS in production via reverse proxy
+- Restrict network access to trusted clients
+
+### Example systemd Service
 
 ```ini
 [Unit]
-Description=Krell
+Description=Krell AI Backend
 After=network.target
 
 [Service]
@@ -346,34 +289,30 @@ User=krell
 WorkingDirectory=/opt/krell
 ExecStart=/opt/krell/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
 Restart=on-failure
-Environment="PATH=/opt/krell/.venv/bin:/usr/bin"
+Environment="OPENAI_API_KEY=your-key"
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-### Security
+## Documentation
 
-- ⚠️ **Dashboard has NO authentication** - Add auth or firewall it
-- ✅ API keys are encrypted at rest
-- ✅ Use HTTPS in production (reverse proxy)
-- ✅ Restrict network access to trusted clients
+- [Configuration Guide](docs/CONFIGURATION.md) — Full configuration reference
+- [Plugin Development](docs/PLUGINS.md) — Creating custom tools
+- [API Reference](docs/API.md) — Complete API documentation
+- [Entity System](docs/ENTITY_SYSTEM.md) — How entity tracking works
 
-## 📝 Notes
+## Contributing
 
-- **Agentic mode** always enabled (not configurable yet)
-- **Vector embeddings** removed (not needed for current tools)
-- **ChromaDB** removed (simplified to SQLite only)
-- **Legacy endpoints** maintained for backward compatibility
-- **Plugin hot-reload** uses watchdog (file system monitoring)
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 🔗 Links
+## License
 
-- [Strands Framework](https://github.com/emcie-co/strands)
+MIT License — see [LICENSE](LICENSE) for details.
+
+## Links
+
+- [Strands Agents SDK](https://github.com/strands-agents/sdk-python)
 - [Kyutai TTS](https://huggingface.co/kyutai/tts-1.6b-en_fr)
 - [Ollama](https://ollama.ai)
-- [FastAPI Docs](https://fastapi.tiangolo.com)
-
-## 📄 License
-
-MIT
+- [FastAPI](https://fastapi.tiangolo.com)

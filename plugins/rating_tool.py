@@ -20,6 +20,7 @@ async def create_rating_async(
     notes: str = None,
 ) -> dict:
     """Create a rating (async helper)."""
+    await db.init_db()
     rating_id = await db.create_rating(target_type, target_id, category, score, notes)
     return {
         "success": True,
@@ -37,6 +38,7 @@ async def get_ratings_async(
     limit: int = 50,
 ) -> dict:
     """Get ratings (async helper)."""
+    await db.init_db()
     if target_type and target_id:
         # Get ratings for specific target
         result = await db.get_ratings_by_target(target_type, target_id, limit)

@@ -7,14 +7,14 @@
 #   make clean          - Remove local images
 
 # Configuration
-IMAGE_NAME = sarah-backend
+IMAGE_NAME = krell
 REGISTRY = docker.mau.guru
 VERSION ?= 0.1.0
 TAG = $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
 LATEST_TAG = $(REGISTRY)/$(IMAGE_NAME):latest
 
 # Phony targets (not files)
-.PHONY: all build tag push clean help
+.PHONY: all build tag push clean help migrate
 
 # Default target
 all: build tag push
@@ -62,6 +62,12 @@ stop:
 	@echo "Stopping $(IMAGE_NAME)-test..."
 	docker stop $(IMAGE_NAME)-test
 
+# Run database migrations
+migrate:
+	@echo "Running database migrations..."
+	uv run python -m database.migrate
+	@echo "Migrations complete"
+
 # Show help
 help:
 	@echo "Sarah Backend Docker Makefile"
@@ -74,6 +80,7 @@ help:
 	@echo "  make run            - Build and run locally for testing"
 	@echo "  make stop           - Stop the local test container"
 	@echo "  make clean          - Remove local images"
+	@echo "  make migrate        - Run database migrations"
 	@echo "  make help           - Show this help message"
 	@echo ""
 	@echo "Variables:"

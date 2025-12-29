@@ -48,7 +48,7 @@ async def migrate_database(db_path: str):
 
         # Read and execute migration SQL
         migration_file = os.path.join(
-            os.path.dirname(__file__), "database/migrations/001_entity_system.sql"
+            os.path.dirname(__file__), "migrations/001_entity_system.sql"
         )
 
         with open(migration_file, "r") as f:
@@ -106,7 +106,7 @@ async def main():
 
     if not os.path.exists(db_path):
         print(f"Database not found: {db_path}")
-        print("Usage: python migrate_database.py [path/to/database.db]")
+        print("Usage: python -m database.migrate [path/to/database.db]")
         sys.exit(1)
 
     await migrate_database(db_path)

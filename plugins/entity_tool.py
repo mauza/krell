@@ -20,6 +20,7 @@ async def create_entity_async(
     metadata: dict = None,
 ) -> dict:
     """Create an entity (async helper)."""
+    await db.init_db()
     entity_id = await db.create_entity(entity_type, name, description, metadata)
     return {
         "success": True,
@@ -33,6 +34,7 @@ async def update_entity_async(
     db: Database, entity_id: str, description: str = None, metadata: dict = None
 ) -> dict:
     """Update an entity (async helper)."""
+    await db.init_db()
     success = await db.update_entity(entity_id, description, metadata)
     return {"success": success, "entity_id": entity_id}
 
@@ -41,6 +43,7 @@ async def search_entities_async(
     db: Database, query: str = None, entity_type: str = None, limit: int = 10
 ) -> dict:
     """Search entities (async helper)."""
+    await db.init_db()
     results = await db.search_entities(query, entity_type, limit)
 
     # Format for conversational response
