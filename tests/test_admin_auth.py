@@ -284,3 +284,50 @@ class TestProtectedRoutes:
         response = isolated_client.get("/dashboard/api/plugins")
 
         assert response.status_code == 401
+
+
+class TestFullFlow:
+    """End-to-end authentication flow test."""
+
+    def test_complete_auth_flow(self, isolated_client):
+        """Test complete flow: setup -> login -> access -> logout -> denied."""
+        # 1. Dashboard redirects to setup
+        response = isolated_client.get("/dashboard", follow_redirects=False)
+        assert response.status_code == 307
+        assert "/setup" in response.headers["location"]
+
+        # 2. Setup password
+        response = isolated_client.post(
+            "/dashboard/setup",
+            data={"password": "securepass123", "confirm_password": "securepass123"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        # 3. Dashboard now redirects to login
+        response = isolated_client.get("/dashboard", follow_redirects=False)
+        assert response.status_code == 307
+        assert "/login" in response.headers["location"]
+
+        # 4. Login
+        response = isolated_client.post(
+            "/dashboard/login",
+            data={"password": "securepass123"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert "krell_session" in response.cookies
+
+        # 5. Access dashboard (now works)
+        response = isolated_client.get("/dashboard")
+        assert response.status_code == 200
+        assert b"Krell Dashboard" in response.content
+
+        # 6. Logout
+        response = isolated_client.get("/dashboard/logout", follow_redirects=False)
+        assert response.status_code == 307
+
+        # 7. Dashboard redirects to login again
+        response = isolated_client.get("/dashboard", follow_redirects=False)
+        assert response.status_code == 307
+        assert "/login" in response.headers["location"]
