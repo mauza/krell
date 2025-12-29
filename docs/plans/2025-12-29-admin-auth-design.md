@@ -1,3 +1,5 @@
+**Status:** Implemented (2025-12-29)
+
 # Admin Authentication Design
 
 ## Overview
