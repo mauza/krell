@@ -14,3 +14,6 @@ data/
 
 # Model files (large binary files)
 models/
+
+# Git worktrees
+.worktrees/
