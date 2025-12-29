@@ -27,11 +27,19 @@ logger = logging.getLogger(__name__)
 
 from pathlib import Path
 
+from typing import Optional
 from fastapi import FastAPI, Request, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from contextlib import asynccontextmanager
+from auth import (
+    hash_password,
+    verify_password,
+    generate_session_token,
+    get_session_expiry,
+    is_session_expired,
+)
 from api.routes import router
 from api.websocket import router as websocket_router
 from database.db import ConversationDB, Database
@@ -113,6 +121,137 @@ async def root():
 
 
 # ============================================================================
+# Authentication Routes
+# ============================================================================
+
+
+async def is_admin_password_set() -> bool:
+    """Check if admin password has been set."""
+    database = Database(db.db_path)
+    password_hash = await database.get_setting("admin_password_hash")
+    return password_hash is not None
+
+
+async def get_current_session(request: Request) -> Optional[str]:
+    """Get and validate current session from cookie."""
+    token = request.cookies.get("krell_session")
+    if not token:
+        return None
+
+    database = Database(db.db_path)
+    stored_token = await database.get_setting("admin_session_token")
+    expires = await database.get_setting("admin_session_expires")
+
+    if token != stored_token or is_session_expired(expires):
+        return None
+
+    return token
+
+
+@app.get("/dashboard/setup", response_class=HTMLResponse)
+async def dashboard_setup_page(request: Request):
+    """Show password setup form."""
+    # If password already set, redirect to login
+    if await is_admin_password_set():
+        return RedirectResponse(url="/dashboard/login", status_code=307)
+
+    return templates.TemplateResponse(request, "setup.html", {"error": None})
+
+
+@app.post("/dashboard/setup", response_class=HTMLResponse)
+async def dashboard_setup_submit(
+    request: Request,
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+):
+    """Handle password setup form submission."""
+    # If password already set, redirect to login
+    if await is_admin_password_set():
+        return RedirectResponse(url="/dashboard/login", status_code=307)
+
+    # Validate password
+    if password != confirm_password:
+        return templates.TemplateResponse(
+            request, "setup.html", {"error": "Passwords do not match"}
+        )
+
+    if len(password) < 8:
+        return templates.TemplateResponse(
+            request, "setup.html", {"error": "Password must be at least 8 characters"}
+        )
+
+    # Hash and store password
+    password_hash = hash_password(password)
+    database = Database(db.db_path)
+    await database.set_setting("admin_password_hash", password_hash)
+
+    # Redirect to login
+    return RedirectResponse(url="/dashboard/login", status_code=303)
+
+
+@app.get("/dashboard/login", response_class=HTMLResponse)
+async def dashboard_login_page(request: Request):
+    """Show login form."""
+    # If no password set, redirect to setup
+    if not await is_admin_password_set():
+        return RedirectResponse(url="/dashboard/setup", status_code=307)
+
+    # If already logged in, redirect to dashboard
+    if await get_current_session(request):
+        return RedirectResponse(url="/dashboard", status_code=307)
+
+    return templates.TemplateResponse(request, "login.html", {"error": None})
+
+
+@app.post("/dashboard/login", response_class=HTMLResponse)
+async def dashboard_login_submit(
+    request: Request,
+    password: str = Form(...),
+):
+    """Handle login form submission."""
+    database = Database(db.db_path)
+    stored_hash = await database.get_setting("admin_password_hash")
+
+    if not stored_hash or not verify_password(password, stored_hash):
+        return templates.TemplateResponse(
+            request, "login.html", {"error": "Invalid password"}
+        )
+
+    # Create session
+    token = generate_session_token()
+    expiry = get_session_expiry()
+
+    await database.set_setting("admin_session_token", token)
+    await database.set_setting("admin_session_expires", expiry.isoformat())
+
+    # Set cookie and redirect
+    response = RedirectResponse(url="/dashboard", status_code=303)
+    response.set_cookie(
+        key="krell_session",
+        value=token,
+        httponly=True,
+        max_age=7 * 24 * 60 * 60,  # 7 days
+        samesite="lax",
+    )
+    return response
+
+
+@app.get("/dashboard/logout")
+async def dashboard_logout(request: Request):
+    """Log out and clear session."""
+    database = Database(db.db_path)
+
+    # Clear session from database
+    await database.delete_setting("admin_session_token")
+    await database.delete_setting("admin_session_expires")
+
+    # Clear cookie and redirect
+    response = RedirectResponse(url="/dashboard/login", status_code=307)
+    response.delete_cookie("krell_session")
+    return response
+
+
+# ============================================================================
 # Dashboard Routes
 # ============================================================================
 
@@ -120,6 +259,14 @@ async def root():
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serve dashboard HTML page"""
+    # Check if password is set
+    if not await is_admin_password_set():
+        return RedirectResponse(url="/dashboard/setup", status_code=307)
+
+    # Check if logged in
+    if not await get_current_session(request):
+        return RedirectResponse(url="/dashboard/login", status_code=307)
+
     return templates.TemplateResponse(request, "dashboard.html")
 
 

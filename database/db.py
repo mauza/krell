@@ -522,6 +522,13 @@ class Database:
             rows = await cursor.fetchall()
             return {row["key"]: row["value"] for row in rows}
 
+    async def delete_setting(self, key: str) -> bool:
+        """Delete a setting by key."""
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("DELETE FROM settings WHERE key = ?", (key,))
+            await db.commit()
+            return cursor.rowcount > 0
+
     # Search operations
 
     async def search_conversations(self, query: str, limit: int = 5) -> List[Dict]:
