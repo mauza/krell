@@ -22,18 +22,24 @@ def test_verify_model_files_returns_true_when_files_exist():
 
     with patch("os.path.isdir") as mock_isdir:
         with patch("os.listdir") as mock_listdir:
-            # Mock that both model and voices directories exist and have content
-            mock_isdir.return_value = True
-            mock_listdir.side_effect = [
-                ["model_file.bin"],  # First call - model directory
-                ["voice_file.wav"],  # Second call - voices directory
-            ]
+            with patch("os.walk") as mock_walk:
+                # Mock that both model and voices directories exist and have content
+                mock_isdir.return_value = True
+                mock_listdir.return_value = ["model_file.bin"]  # Model directory
+                mock_walk.return_value = [
+                    (
+                        "/existing/voices",
+                        [],
+                        ["voice_file.wav"],
+                    ),  # Voices with wav file
+                ]
 
-            result = verify_model_files("/existing/model", "/existing/voices")
+                result = verify_model_files("/existing/model", "/existing/voices")
 
-            assert result is True
-            assert mock_isdir.call_count == 2
-            assert mock_listdir.call_count == 2
+                assert result is True
+                assert mock_isdir.call_count == 2
+                assert mock_listdir.call_count == 1
+                assert mock_walk.call_count == 1
 
 
 def test_verify_model_files_returns_false_when_voices_empty():

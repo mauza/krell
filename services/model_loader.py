@@ -44,11 +44,11 @@ def verify_model_files(model_path: str, voices_path: str) -> bool:
         logger.warning(f"Model directory is empty: {model_path}")
         return False
 
-    voice_files = [
-        f
-        for f in os.listdir(voices_path)
-        if f.endswith(".wav") or f.endswith(".safetensors")
-    ]
+    voice_files = []
+    for root, _, files in os.walk(voices_path):
+        voice_files.extend(
+            [f for f in files if f.endswith(".wav") or f.endswith(".safetensors")]
+        )
     if not voice_files:
         logger.warning(f"No voice files found in voices directory: {voices_path}")
         return False
