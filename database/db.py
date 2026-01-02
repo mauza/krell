@@ -508,7 +508,17 @@ class Database:
                 value = row[0]
                 # Decrypt if requested
                 if decrypt:
-                    value = self.cipher.decrypt(value.encode()).decode()
+                    try:
+                        value = self.cipher.decrypt(value.encode()).decode()
+                    except Exception as e:
+                        # If decryption fails (corrupted data, wrong key, etc), log and return None
+                        import logging
+
+                        logger = logging.getLogger(__name__)
+                        logger.warning(
+                            f"Failed to decrypt setting '{key}': {e}. Returning None."
+                        )
+                        return None
                 return value
             return None
 

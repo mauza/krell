@@ -295,11 +295,19 @@ async def stream_tts_over_websocket(websocket: WebSocket, text: str):
         for i, sentence in enumerate(sentences):
             logger.info(f"TTS sentence {i + 1}/{len(sentences)}: {sentence[:40]}...")
 
+            # Get configured voice (check database first, fallback to config)
+            from database.db import Database
+
+            database = Database(config.database_path)
+            configured_voice = (
+                await database.get_setting("tts_voice") or config.tts_voice
+            )
+
             # Generate audio for this sentence
             audio_array, sample_rate = await asyncio.to_thread(
                 tts_service._kyutai_model.synthesize,
                 text=sentence,
-                voice=config.tts_voice,
+                voice=configured_voice,
                 speed=config.tts_speed,
                 lang=config.tts_lang,
             )

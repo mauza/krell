@@ -84,15 +84,16 @@ You are a scribe and memory keeper, not a conversational companion. Focus on bei
         self.system_prompt = system_prompt or self.SYSTEM_PROMPT
 
         # Initialize OpenAI model with API key and endpoint
-        api_key = openai_api_key or os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            raise ValueError(
-                "OpenAI API key is required. Set it via openai_api_key parameter or OPENAI_API_KEY environment variable."
-            )
+        # For local LLMs like Ollama, API key may not be required
+        api_key = openai_api_key or os.getenv("OPENAI_API_KEY", "dummy-key")
 
         client_args = {"api_key": api_key}
         if llm_endpoint and llm_endpoint != "https://api.openai.com":
-            client_args["base_url"] = llm_endpoint
+            # Ensure Ollama endpoints have /v1 suffix for OpenAI compatibility
+            base_url = llm_endpoint
+            if not base_url.endswith("/v1"):
+                base_url = base_url.rstrip("/") + "/v1"
+            client_args["base_url"] = base_url
 
         self._model = OpenAIModel(
             client_args=client_args,

@@ -1,65 +1,47 @@
-# Stage 1: Builder - Install dependencies
-FROM python:3.12-slim AS builder
+# Stage 1: Runtime
+FROM nvcr.io/nvidia/pytorch:24.12-py3
+
+WORKDIR /app
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Set working directory
-WORKDIR /app
-
-# Copy dependency files first for better layer caching
+# Copy dependency files
 COPY pyproject.toml uv.lock ./
 
-# Install dependencies using uv
-# --frozen ensures we use the exact versions from uv.lock
-# --no-dev excludes development dependencies
-RUN uv sync --frozen --no-dev
+# --- FIXED SECTION ---
+# 1. Export dependencies to a requirements.txt file (using the lockfile versions)
+RUN uv export --frozen --no-dev --no-hashes --output-file requirements.txt
 
-# Stage 2: Runtime
-FROM python:3.12-slim
+# 2. Remove torch, nvidia, triton, and bitsandbytes packages that are pre-installed in base image
+#    Also remove sympy and networkx since torch version in base image has specific version requirements
+RUN sed -i '/^torch==/d; /^triton==/d; /^nvidia-/d; /^bitsandbytes==/d; /^setuptools==/d; /^intel-extension-for-pytorch==/d; /^sympy==/d; /^networkx==/d' requirements.txt
 
-# Install runtime dependencies (for audio processing, etc.)
+# 3. Install remaining dependencies using standard pip (more lenient than uv with version conflicts)
+RUN python3 -m pip install --no-deps -r requirements.txt
+# ---------------------
+
+# Install system runtime libs
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    libsndfile1 \
-    libgomp1 && \
+    libsndfile1 && \
     rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
-
-# Copy Python environment from builder
-COPY --from=builder /app/.venv /app/.venv
-
 # Copy application code
-# Core application modules
 COPY api ./api
 COPY core ./core
-COPY database ./database
 COPY krell ./krell
 COPY plugins ./plugins
 COPY services ./services
 COPY templates ./templates
-
-# Copy TTS models (required for Kyutai TTS)
-COPY models ./models
-
-# Copy configuration files
 COPY config.py config.yaml main.py ./
 
-# Create data directory for database
 RUN mkdir -p ./data
 
-# Set Python path to use the virtual environment
-ENV PATH="/app/.venv/bin:$PATH"
-ENV PYTHONPATH="/app"
-
-# Expose the application port
 EXPOSE 8000
 
-# Health check using the root endpoint
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
 
-# Run the application
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

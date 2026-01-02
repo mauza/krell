@@ -19,7 +19,7 @@ dependencies = [
     "moshi>=0.2.6", # For Kyutai TTS PyTorch inference
     "torch>=2.0.0", # PyTorch for moshi/kyutai TTS
     "intel-extension-for-pytorch>=2.8.0; platform_system != 'Darwin'", # Intel GPU (XPU) support
-    "huggingface_hub>=0.19.0", # For downloading Kyutai models from HuggingFace
+    "huggingface-hub>=0.19.0", # For downloading Kyutai models from HuggingFace
     "httpx>=0.28.1",
     "cryptography>=43.0.0", # For settings encryption
     "pytest>=8.0.0", # For testing

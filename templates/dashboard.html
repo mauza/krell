@@ -139,6 +139,46 @@
             </div>
         </div>
 
+        <!-- Voice Configuration Section -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-2xl font-semibold mb-4">Voice Configuration</h2>
+            
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 mb-2">Select a voice for text-to-speech output. Click the play button to hear a sample.</p>
+            </div>
+            
+            <div id="voice-message" class="mb-4"></div>
+            
+            <div id="voices-loading" class="text-gray-600">Loading available voices...</div>
+            
+            <div id="voice-selection-container" class="hidden">
+                <div class="flex items-center gap-4">
+                    <div class="flex-1">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Select Voice</label>
+                        <select id="voice-dropdown" 
+                                class="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                            <option value="">Loading voices...</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-2 items-end">
+                        <button id="play-voice-btn" 
+                                onclick="playSelectedVoice()"
+                                class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center gap-2">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/>
+                            </svg>
+                            Play Sample
+                        </button>
+                        <button id="save-voice-btn" 
+                                onclick="saveVoiceSelection()"
+                                class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            Save Voice
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Plugin Configuration Modal -->
         <div id="config-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg mx-4">
@@ -166,30 +206,7 @@
             </div>
         </div>
 
-        <!-- Recent Activity Section -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <!-- Recent Conversations -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-2xl font-semibold mb-4">Recent Conversations</h2>
-                 <div id="recent-conversations" 
-                      hx-get="/dashboard/api/recent/conversations" 
-                      hx-trigger="load, every 60s"
-                      class="space-y-2">
-                    <p class="text-gray-600">Loading...</p>
-                </div>
-            </div>
-
-            <!-- Recent Journal Entries -->
-            <div class="bg-white rounded-lg shadow-md p-6">
-                <h2 class="text-2xl font-semibold mb-4">Recent Journal Entries</h2>
-                 <div id="recent-journal" 
-                      hx-get="/dashboard/api/recent/journal" 
-                      hx-trigger="load, every 60s"
-                      class="space-y-2">
-                    <p class="text-gray-600">Loading...</p>
-                </div>
-            </div>
-        </div>
+        
     </div>
 
     <script>
@@ -444,6 +461,167 @@
             }
         }
 
+        // Voice Configuration
+        let currentVoice = null;
+        let currentAudio = null;
+
+        // Load voices on page load
+        async function loadVoices() {
+            try {
+                // Get current voice
+                const currentResponse = await fetch('/dashboard/api/voice/current');
+                const currentData = await currentResponse.json();
+                currentVoice = currentData.voice;
+
+                // Get available voices
+                const voicesResponse = await fetch('/dashboard/api/voices');
+                const voicesData = await voicesResponse.json();
+
+                if (!voicesData.success) {
+                    document.getElementById('voices-loading').innerHTML = 
+                        '<p class="text-red-600">Failed to load voices: ' + (voicesData.error || 'Unknown error') + '</p>';
+                    return;
+                }
+
+                const voices = voicesData.voices;
+                if (voices.length === 0) {
+                    document.getElementById('voices-loading').innerHTML = 
+                        '<p class="text-gray-600">No voices available. Make sure TTS model is initialized.</p>';
+                    return;
+                }
+
+                // Hide loading, show voice selection
+                document.getElementById('voices-loading').classList.add('hidden');
+                document.getElementById('voice-selection-container').classList.remove('hidden');
+
+                // Populate dropdown
+                const dropdown = document.getElementById('voice-dropdown');
+                dropdown.innerHTML = '';
+
+                voices.forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice;
+                    // Clean up the display name
+                    const displayName = voice.replace('.safetensors', '').replace(/\//g, ' / ');
+                    option.textContent = displayName + (voice === currentVoice ? ' (current)' : '');
+                    option.selected = (voice === currentVoice);
+                    dropdown.appendChild(option);
+                });
+            } catch (error) {
+                document.getElementById('voices-loading').innerHTML = 
+                    '<p class="text-red-600">Error loading voices: ' + error.message + '</p>';
+            }
+        }
+
+        async function playSelectedVoice() {
+            const dropdown = document.getElementById('voice-dropdown');
+            const voice = dropdown.value;
+            
+            if (!voice) {
+                alert('Please select a voice');
+                return;
+            }
+
+            const button = document.getElementById('play-voice-btn');
+            const originalHTML = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = `
+                <svg class="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Loading...
+            `;
+
+            try {
+                // Stop any currently playing audio
+                if (currentAudio && !currentAudio.paused) {
+                    currentAudio.pause();
+                    currentAudio.currentTime = 0;
+                }
+
+                // Create new audio element
+                currentAudio = new Audio();
+                currentAudio.src = '/dashboard/api/voice/sample?voice=' + encodeURIComponent(voice);
+                
+                await currentAudio.play();
+
+                button.innerHTML = `
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M5.5 3.5A1.5 1.5 0 017 2h6a1.5 1.5 0 011.5 1.5v13A1.5 1.5 0 0113 18H7a1.5 1.5 0 01-1.5-1.5v-13z"/>
+                    </svg>
+                    Playing...
+                `;
+
+                currentAudio.onended = () => {
+                    button.innerHTML = originalHTML;
+                    button.disabled = false;
+                };
+
+                currentAudio.onerror = () => {
+                    button.innerHTML = originalHTML;
+                    button.disabled = false;
+                    alert('Failed to play audio sample');
+                };
+
+            } catch (error) {
+                button.innerHTML = originalHTML;
+                button.disabled = false;
+                alert('Failed to play audio: ' + error.message);
+            }
+        }
+
+        async function saveVoiceSelection() {
+            const dropdown = document.getElementById('voice-dropdown');
+            const selectedVoice = dropdown.value;
+            
+            if (!selectedVoice) {
+                alert('Please select a voice');
+                return;
+            }
+
+            const messageDiv = document.getElementById('voice-message');
+            messageDiv.innerHTML = '<p class="text-blue-600">Saving voice selection...</p>';
+
+            try {
+                const formData = new FormData();
+                formData.append('voice', selectedVoice);
+
+                const response = await fetch('/dashboard/api/voice', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    messageDiv.innerHTML = '<p class="text-green-600 font-semibold">Voice saved successfully!</p>';
+                    currentVoice = selectedVoice;
+                    
+                    // Update dropdown to show new current voice
+                    const dropdown = document.getElementById('voice-dropdown');
+                    Array.from(dropdown.options).forEach(option => {
+                        const voiceValue = option.value;
+                        const displayName = voiceValue.replace('.safetensors', '').replace(/\//g, ' / ');
+                        option.textContent = displayName + (voiceValue === currentVoice ? ' (current)' : '');
+                    });
+                } else {
+                    messageDiv.innerHTML = '<p class="text-red-600 font-semibold">Failed to save voice</p>';
+                }
+
+                // Clear message after 5 seconds
+                setTimeout(() => {
+                    messageDiv.innerHTML = '';
+                }, 5000);
+
+            } catch (error) {
+                messageDiv.innerHTML = '<p class="text-red-600 font-semibold">Error: ' + error.message + '</p>';
+            }
+        }
+
+        // Load voices when page loads
+        loadVoices();
+
         // HTMX response handlers
         document.body.addEventListener('htmx:afterSwap', function(event) {
             // Handle system status update
@@ -514,50 +692,7 @@
                 }
             }
             
-            // Handle recent conversations update
-            if (event.detail.target.id === 'recent-conversations') {
-                const data = JSON.parse(event.detail.xhr.response);
-                if (data.length > 0) {
-                    let html = '<div class="space-y-2">';
-                    data.forEach(conv => {
-                        html += `
-                            <div class="p-3 bg-gray-50 rounded hover:bg-gray-100 cursor-pointer">
-                                <div class="font-semibold text-sm">${conv.title}</div>
-                                <div class="text-xs text-gray-500">${new Date(conv.updated_at).toLocaleString()}</div>
-                            </div>
-                        `;
-                    });
-                    html += '</div>';
-                    event.detail.target.innerHTML = html;
-                } else {
-                    event.detail.target.innerHTML = '<p class="text-gray-600">No conversations yet</p>';
-                }
-            }
-            
-            // Handle recent journal entries update
-            if (event.detail.target.id === 'recent-journal') {
-                const data = JSON.parse(event.detail.xhr.response);
-                if (data.length > 0) {
-                    let html = '<div class="space-y-2">';
-                    data.forEach(entry => {
-                        const typeColor = entry.entry_type === 'autonomous' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800';
-                        html += `
-                            <div class="p-3 bg-gray-50 rounded">
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span class="text-xs px-2 py-1 rounded ${typeColor}">${entry.entry_type}</span>
-                                    <span class="text-xs text-gray-500">${new Date(entry.created_at).toLocaleString()}</span>
-                                </div>
-                                <div class="text-sm text-gray-700">${entry.content.substring(0, 100)}${entry.content.length > 100 ? '...' : ''}</div>
-                            </div>
-                        `;
-                    });
-                    html += '</div>';
-                    event.detail.target.innerHTML = html;
-                } else {
-                    event.detail.target.innerHTML = '<p class="text-gray-600">No journal entries yet</p>';
-                }
-            }
-            
+
             // Handle settings save response
             if (event.detail.target.id === 'settings-message') {
                 const data = JSON.parse(event.detail.xhr.response);

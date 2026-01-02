@@ -531,6 +531,90 @@ async def dashboard_recent_journal(
     return entries
 
 
+@app.get("/dashboard/api/voices")
+async def dashboard_get_voices(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
+    """Get list of available TTS voices"""
+    try:
+        from api.routes import tts_service
+
+        if hasattr(tts_service, "_kyutai_model") and tts_service._kyutai_model:
+            all_voices = tts_service._kyutai_model.get_available_voices()
+            # Filter to only include .safetensors files (voice embeddings)
+            # .wav files are just samples for reference
+            voices = [v for v in all_voices if v.endswith(".safetensors")]
+            return {"success": True, "voices": voices}
+        else:
+            return {
+                "success": False,
+                "error": "TTS model not initialized",
+                "voices": [],
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e), "voices": []}
+
+
+@app.get("/dashboard/api/voice/current")
+async def dashboard_get_current_voice(
+    request: Request, _: str = Depends(require_admin_auth_api)
+):
+    """Get currently configured voice"""
+    database = Database(db.db_path)
+    voice = await database.get_setting("tts_voice") or config.tts_voice
+    return {"voice": voice}
+
+
+@app.post("/dashboard/api/voice")
+async def dashboard_set_voice(
+    request: Request,
+    voice: str = Form(...),
+    _: str = Depends(require_admin_auth_api),
+):
+    """Set TTS voice configuration"""
+    database = Database(db.db_path)
+    await database.set_setting("tts_voice", voice)
+
+    # Update the TTS service to use the new voice
+    from api.routes import tts_service
+
+    tts_service.voice = voice
+
+    return {"success": True, "message": "Voice updated successfully"}
+
+
+@app.get("/dashboard/api/voice/sample")
+async def dashboard_voice_sample(
+    request: Request,
+    voice: str,
+    _: str = Depends(require_admin_auth_api),
+):
+    """Generate a sample audio for a voice"""
+    try:
+        from api.routes import tts_service
+        from fastapi.responses import StreamingResponse
+
+        sample_text = "Hello! This is a sample of my voice. How do I sound?"
+
+        async def generate_sample():
+            async for chunk in tts_service.stream_tts_chunked(
+                text=sample_text,
+                voice=voice,
+                max_text_length=500,
+            ):
+                yield chunk
+
+        return StreamingResponse(
+            generate_sample(),
+            media_type="audio/wav",
+            headers={"Content-Disposition": f"inline; filename=voice_sample.wav"},
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate sample: {str(e)}"
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
 
