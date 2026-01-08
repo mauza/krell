@@ -3,7 +3,7 @@ name = "krell"
 version = "0.1.0"
 description = "Krell Backend - Self-hosted RAG server for voice AI companion"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.104.1",
     "uvicorn[standard]>=0.24.0",

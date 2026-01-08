@@ -295,6 +295,31 @@ Environment="OPENAI_API_KEY=your-key"
 WantedBy=multi-user.target
 ```
 
+## Troubleshooting
+
+### TTS Errors on Apple Silicon (MPS)
+
+If you see errors like `The operator 'aten::index_copy.out' is not currently implemented for the MPS device`:
+
+**Solution**: The `start.sh` script now automatically sets `PYTORCH_ENABLE_MPS_FALLBACK=1`. If running manually:
+
+```bash
+export PYTORCH_ENABLE_MPS_FALLBACK=1
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+This enables CPU fallback for PyTorch operations not yet implemented on Apple's Metal GPU.
+
+### LLM Connection Errors
+
+If you see `No models loaded` errors:
+
+1. **LM Studio**: Ensure a model is loaded in the LM Studio UI
+2. **Ollama**: Run `ollama list` to verify models are available
+3. **OpenAI**: Check your API key is set correctly
+
+The error message will now indicate the specific issue (no model loaded vs. connection failed).
+
 ## Documentation
 
 - [Configuration Guide](docs/CONFIGURATION.md) — Full configuration reference

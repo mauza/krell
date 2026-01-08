@@ -24,6 +24,16 @@ fi
 echo "Installing dependencies..."
 uv sync
 
+# PyTorch CPU optimizations for M3 Max Performance cores
+# Use all performance cores for inference
+export OMP_NUM_THREADS=12  # M3 Max has 12 performance cores
+export MKL_NUM_THREADS=12
+export OPENBLAS_NUM_THREADS=12
+
+# Set PyTorch MPS fallback for Apple Silicon GPU compatibility
+# NOTE: Currently using CPU due to MPS compatibility issues with Kyutai model
+# export PYTORCH_ENABLE_MPS_FALLBACK=1
+
 # Run the server
 echo "Starting server on http://localhost:8000"
 echo "Dashboard: http://localhost:8000/dashboard"

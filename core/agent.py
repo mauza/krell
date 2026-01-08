@@ -432,7 +432,16 @@ You are a scribe and memory keeper, not a conversational companion. Focus on bei
 
         except Exception as e:
             logger.error(f"Error during streaming agent invocation: {e}", exc_info=True)
-            error_text = "I apologize, but I encountered an error processing your message. Please try again."
+
+            # Provide specific error messages based on error type
+            error_str = str(e)
+            if "No models loaded" in error_str:
+                error_text = "No LLM model is currently loaded. Please load a model in LM Studio or your configured endpoint."
+            elif "Connection refused" in error_str or "Failed to connect" in error_str:
+                error_text = "Cannot connect to the LLM endpoint. Please ensure your LLM server is running."
+            else:
+                error_text = "I apologize, but I encountered an error processing your message. Please try again."
+
             full_text = [error_text]
             yield {"type": "text", "content": error_text}
 

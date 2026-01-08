@@ -79,7 +79,7 @@ def download_kyutai_models(model_path: str, voices_path: str) -> bool:
     try:
         logger.info("Starting Kyutai model downloads...")
 
-        model_repo = "kyutai-moshi/moshi"  # Official repo from the package
+        model_repo = "kyutai/tts-1.6b-en_fr"  # Official Kyutai TTS repo
         voices_repo = "kyutai/tts-voices"
 
         os.makedirs(model_path, exist_ok=True)

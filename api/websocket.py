@@ -32,7 +32,9 @@ class ConnectionManager:
         """Accept and register a new WebSocket connection."""
         await websocket.accept()
         self.active_connections[session_id] = websocket
-        logger.info(f"WebSocket connected: {session_id}")
+        logger.info(
+            f"WebSocket connected: {session_id} (total active: {len(self.active_connections)})"
+        )
 
     def disconnect(self, session_id: str):
         """Unregister a WebSocket connection."""
@@ -41,7 +43,12 @@ class ConnectionManager:
         if session_id in self.active_generations:
             task = self.active_generations.pop(session_id)
             task.cancel()
-        logger.info(f"WebSocket disconnected: {session_id}")
+            logger.info(
+                f"Cancelled active generation during disconnect for {session_id}"
+            )
+        logger.info(
+            f"WebSocket disconnected: {session_id} (remaining active: {len(self.active_connections)})"
+        )
 
     async def send_json(self, session_id: str, data: dict):
         """Send JSON message to a specific session."""
@@ -92,13 +99,34 @@ async def websocket_chat(websocket: WebSocket):
     try:
         # Send connection confirmation
         await websocket.send_json({"type": "connected", "session_id": session_id})
+        logger.info(f"Sent connection confirmation to {session_id}")
 
         # Listen for messages
         while True:
-            data = await websocket.receive_json()
-            await handle_message(websocket, session_id, data)
+            logger.debug(f"Waiting for message from {session_id}...")
+            try:
+                data = await websocket.receive_json()
+                logger.info(
+                    f"Received message from {session_id}: type={data.get('type')}, keys={list(data.keys())}"
+                )
+                await handle_message(websocket, session_id, data)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to decode JSON from {session_id}: {e}")
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "message": "Invalid JSON format",
+                        "code": "INVALID_JSON",
+                    }
+                )
+            except ValueError as e:
+                logger.error(f"Invalid data format from {session_id}: {e}")
+                await websocket.send_json(
+                    {"type": "error", "message": str(e), "code": "INVALID_DATA"}
+                )
 
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnect detected for {session_id}")
         manager.disconnect(session_id)
     except Exception as e:
         logger.error(f"WebSocket error for {session_id}: {e}", exc_info=True)
@@ -108,8 +136,10 @@ async def websocket_chat(websocket: WebSocket):
 async def handle_message(websocket: WebSocket, session_id: str, data: dict):
     """Handle incoming WebSocket messages."""
     msg_type = data.get("type")
+    logger.info(f"Handling message type '{msg_type}' for session {session_id}")
 
     if msg_type == "ping":
+        logger.debug(f"Responding to ping from {session_id}")
         await websocket.send_json({"type": "pong"})
 
     elif msg_type == "cancel":
@@ -119,18 +149,29 @@ async def handle_message(websocket: WebSocket, session_id: str, data: dict):
             task.cancel()
             manager.unregister_generation(session_id)
             logger.info(f"Cancelled generation for session {session_id}")
+        else:
+            logger.warning(
+                f"Cancel requested but no active generation for {session_id}"
+            )
 
     elif msg_type == "message":
         # Handle chat message
+        content = data.get("content", "")
+        conversation_id = data.get("conversation_id")
+        logger.info(
+            f"Processing chat message for {session_id}: content_length={len(content)}, conversation_id={conversation_id}"
+        )
         await handle_chat_message(
             websocket=websocket,
             session_id=session_id,
-            content=data.get("content", ""),
-            conversation_id=data.get("conversation_id"),
+            content=content,
+            conversation_id=conversation_id,
         )
 
     else:
-        logger.warning(f"Unknown message type: {msg_type}")
+        logger.warning(
+            f"Unknown message type '{msg_type}' from session {session_id}, data: {data}"
+        )
 
 
 async def handle_chat_message(
@@ -153,11 +194,17 @@ async def handle_chat_message(
     """
     from api.routes import get_krell_agent, tts_service
 
+    logger.info(f"Starting chat message handler for session {session_id}")
+
     try:
+        logger.debug(f"Getting Krell agent for session {session_id}")
         agent = await get_krell_agent()
 
         if not agent:
+            logger.error(f"Failed to initialize agent for session {session_id}")
             raise RuntimeError("Failed to initialize agent")
+
+        logger.info(f"Agent initialized successfully for session {session_id}")
 
         # Create task for generation (can be cancelled)
         async def generate():
@@ -165,10 +212,22 @@ async def handle_chat_message(
             current_conversation_id = conversation_id
 
             try:
+                logger.info(f"Starting agent.chat_stream for session {session_id}")
+                event_count = 0
+
                 # Stream text from agent
                 async for event in agent.chat_stream(conversation_id, content):
-                    if event["type"] == "conversation_id":
+                    event_count += 1
+                    event_type = event.get("type")
+                    logger.debug(
+                        f"Received event #{event_count} type='{event_type}' for session {session_id}"
+                    )
+
+                    if event_type == "conversation_id":
                         current_conversation_id = event["conversation_id"]
+                        logger.info(
+                            f"Conversation ID: {current_conversation_id} for session {session_id}"
+                        )
                         await websocket.send_json(
                             {
                                 "type": "conversation_id",
@@ -176,23 +235,30 @@ async def handle_chat_message(
                             }
                         )
 
-                    elif event["type"] == "text":
-                        full_text.append(event["content"])
+                    elif event_type == "text":
+                        text_chunk = event["content"]
+                        full_text.append(text_chunk)
+                        logger.debug(
+                            f"Text chunk ({len(text_chunk)} chars) for session {session_id}"
+                        )
                         await websocket.send_json(
-                            {"type": "text", "content": event["content"]}
+                            {"type": "text", "content": text_chunk}
                         )
 
-                    elif event["type"] == "tool_call":
+                    elif event_type == "tool_call":
+                        tool_name = event.get("name", "unknown")
+                        logger.info(f"Tool call: {tool_name} for session {session_id}")
                         await websocket.send_json(
                             {
                                 "type": "tool_call",
                                 "id": event["id"],
-                                "name": event["name"],
+                                "name": tool_name,
                                 "input": event["input"],
                             }
                         )
 
-                    elif event["type"] == "tool_result":
+                    elif event_type == "tool_result":
+                        logger.info(f"Tool result for session {session_id}")
                         await websocket.send_json(
                             {
                                 "type": "tool_result",
@@ -200,15 +266,24 @@ async def handle_chat_message(
                                 "content": event["content"],
                             }
                         )
+                    else:
+                        logger.warning(
+                            f"Unknown event type '{event_type}' in chat_stream for session {session_id}"
+                        )
+
+                logger.info(
+                    f"Agent stream complete. Received {event_count} events for session {session_id}"
+                )
 
                 # Generate and stream TTS audio
                 response_text = "".join(full_text)
                 logger.info(
-                    f"[CHAT] Calling TTS with response_text length: {len(response_text)}"
+                    f"Calling TTS with response_text length: {len(response_text)} for session {session_id}"
                 )
                 await stream_tts_over_websocket(websocket, response_text)
 
                 # Send completion
+                logger.info(f"Sending done event for session {session_id}")
                 await websocket.send_json(
                     {
                         "type": "done",
@@ -229,26 +304,35 @@ async def handle_chat_message(
                 raise
 
         # Create and track the generation task
+        logger.info(f"Creating generation task for session {session_id}")
         task = asyncio.create_task(generate())
         manager.register_generation(session_id, task)
 
         try:
             await task
+            logger.info(f"Generation task completed for session {session_id}")
         finally:
             manager.unregister_generation(session_id)
 
     except asyncio.CancelledError:
         # Already handled in generate()
+        logger.info(f"Chat message handler cancelled for session {session_id}")
         pass
     except Exception as e:
-        logger.error(f"Error in chat message handler: {e}", exc_info=True)
-        await websocket.send_json(
-            {
-                "type": "error",
-                "message": str(e),
-                "code": "PROCESSING_ERROR",
-            }
+        logger.error(
+            f"Error in chat message handler for session {session_id}: {e}",
+            exc_info=True,
         )
+        try:
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": str(e),
+                    "code": "PROCESSING_ERROR",
+                }
+            )
+        except Exception as send_error:
+            logger.error(f"Failed to send error message to {session_id}: {send_error}")
 
 
 async def stream_tts_over_websocket(websocket: WebSocket, text: str):

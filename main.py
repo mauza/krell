@@ -132,11 +132,22 @@ app.add_middleware(
 app.include_router(router, prefix="/api")
 app.include_router(websocket_router, prefix="/api")
 
+# Include realtime API router (OpenAI Realtime API compatible)
+from api.realtime import router as realtime_router
+
+app.include_router(realtime_router)
+
 
 @app.get("/")
 async def root():
     """Root endpoint"""
     return {"message": "Krell Backend API", "version": "0.1.0", "docs": "/docs"}
+
+
+@app.get("/voice-chat", response_class=HTMLResponse)
+async def voice_chat_page(request: Request):
+    """Voice chat test interface"""
+    return templates.TemplateResponse(request, "voice_chat.html")
 
 
 # ============================================================================
