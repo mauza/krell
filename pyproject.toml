@@ -31,7 +31,32 @@ dependencies = [
     "requests>=2.28.0",
     "websockets>=15.0.1",
     "bcrypt>=4.0.0",
+    # New dependencies for unmute architecture patterns
+    "prometheus-client>=0.19.0",  # Prometheus metrics
+    "msgpack>=1.0.0",  # Binary protocol for efficient streaming
+    "aiofiles>=23.0.0",  # Async file I/O for event recording
+    "redis>=5.0.0",  # Optional Redis cache support
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyright>=1.1.350",  # Type checking
+]
+opus = [
+    "opuslib>=3.0.1",  # Opus audio codec for low-latency streaming (8x compression)
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.pyright]
+# Start with basic mode, gradually increase to strict
+typeCheckingMode = "basic"
+pythonVersion = "3.10"
+include = ["core", "api", "services", "plugins", "database"]
+exclude = ["**/__pycache__", "**/node_modules", ".git", "venv", ".venv"]
+# Gradually enable stricter checks
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportUnusedImport = true
+reportUnusedVariable = true

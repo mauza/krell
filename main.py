@@ -96,6 +96,13 @@ async def lifespan(app: FastAPI):
     logger.info("Kyutai models verified and ready")
     logger.info("Kyutai TTS initialized")
 
+    # Initialize metrics
+    from core.metrics import set_app_info, COMPONENT_STATUS
+    set_app_info(version="0.1.0", tts_provider="kyutai")
+    COMPONENT_STATUS.labels(component="database").set(1)
+    COMPONENT_STATUS.labels(component="tts").set(1)
+    logger.info("Prometheus metrics initialized")
+
     # Load plugins
     logger.info(f"Loaded {len(tools)} plugin tools")
 

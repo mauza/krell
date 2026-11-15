@@ -158,6 +158,154 @@ async def health_check():
     return HealthResponse(status="healthy")
 
 
+@router.get("/metrics")
+async def metrics():
+    """
+    Prometheus metrics endpoint.
+
+    Returns metrics in Prometheus exposition format for scraping.
+    """
+    from fastapi.responses import Response
+    from core.metrics import get_metrics, get_metrics_content_type
+
+    return Response(
+        content=get_metrics(),
+        media_type=get_metrics_content_type(),
+    )
+
+
+@router.get("/events/schema")
+async def get_event_schemas():
+    """
+    Get JSON schemas for all WebSocket events.
+
+    Returns schemas for both server-to-client and client-to-server events.
+    Clients can use these schemas for:
+    - Runtime validation of incoming events
+    - Generating TypeScript/other language types
+    - API documentation
+
+    Returns:
+        {
+            "server_events": { event_type: json_schema, ... },
+            "client_events": { event_type: json_schema, ... },
+            "websocket_url": "/api/ws/chat",
+            "protocol_version": "1.0"
+        }
+    """
+    from api.events import (
+        # Server events
+        Error,
+        SessionUpdated,
+        SessionCreated,
+        InputAudioBufferSpeechStarted,
+        InputAudioBufferSpeechStopped,
+        ResponseCreated,
+        ResponseTextDelta,
+        ResponseTextDone,
+        ResponseAudioDelta,
+        ResponseAudioDone,
+        ResponseDone,
+        ToolCallCreated,
+        ToolCallDelta,
+        ToolCallDone,
+        ToolResult,
+        ConversationCreated,
+        ConversationItemCreated,
+        ConversationItemInputAudioTranscriptionDelta,
+        ConversationItemInputAudioTranscriptionDone,
+        KrellStateUpdate,
+        KrellMetrics,
+        KrellInterrupted,
+        # Client events
+        SessionUpdate,
+        InputTextAppend,
+        InputTextCommit,
+        InputAudioBufferAppend,
+        InputAudioBufferCommit,
+        InputAudioBufferClear,
+    )
+
+    server_event_classes = [
+        Error,
+        SessionUpdated,
+        SessionCreated,
+        InputAudioBufferSpeechStarted,
+        InputAudioBufferSpeechStopped,
+        ResponseCreated,
+        ResponseTextDelta,
+        ResponseTextDone,
+        ResponseAudioDelta,
+        ResponseAudioDone,
+        ResponseDone,
+        ToolCallCreated,
+        ToolCallDelta,
+        ToolCallDone,
+        ToolResult,
+        ConversationCreated,
+        ConversationItemCreated,
+        ConversationItemInputAudioTranscriptionDelta,
+        ConversationItemInputAudioTranscriptionDone,
+        KrellStateUpdate,
+        KrellMetrics,
+        KrellInterrupted,
+    ]
+
+    client_event_classes = [
+        SessionUpdate,
+        InputTextAppend,
+        InputTextCommit,
+        InputAudioBufferAppend,
+        InputAudioBufferCommit,
+        InputAudioBufferClear,
+    ]
+
+    def get_event_type(cls) -> str:
+        """Extract the event type from a Pydantic model."""
+        schema = cls.model_json_schema()
+        # Get the type from the Literal annotation
+        props = schema.get("properties", {})
+        type_prop = props.get("type", {})
+        if "const" in type_prop:
+            return type_prop["const"]
+        if "default" in type_prop:
+            return type_prop["default"]
+        return cls.__name__
+
+    server_events = {}
+    for cls in server_event_classes:
+        event_type = get_event_type(cls)
+        server_events[event_type] = cls.model_json_schema()
+
+    client_events = {}
+    for cls in client_event_classes:
+        event_type = get_event_type(cls)
+        client_events[event_type] = cls.model_json_schema()
+
+    return {
+        "protocol_version": "1.0",
+        "websocket_url": "/api/ws/chat",
+        "description": "Krell WebSocket API - OpenAI Realtime API compatible with extensions",
+        "server_events": server_events,
+        "client_events": client_events,
+        "binary_frames": {
+            "description": "Audio data is sent as binary WebSocket frames (not base64 JSON)",
+            "format": "wav",
+            "sample_rate": 24000,
+            "channels": 1,
+            "sample_width": 2,
+        },
+        "legacy_support": {
+            "description": "Legacy message format is still supported for backwards compatibility",
+            "example": {
+                "type": "message",
+                "content": "Hello",
+                "conversation_id": "optional-uuid"
+            }
+        }
+    }
+
+
 @router.get("/config", response_model=ConfigResponse)
 async def get_config():
     """Get backend configuration including loaded plugins"""
