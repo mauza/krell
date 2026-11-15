@@ -12,6 +12,7 @@ REGISTRY = docker.mau.guru
 VERSION ?= 0.1.0
 TAG = $(REGISTRY)/$(IMAGE_NAME):$(VERSION)
 LATEST_TAG = $(REGISTRY)/$(IMAGE_NAME):latest
+PUSH_RETRIES = 3
 
 # Phony targets (not files)
 .PHONY: all build tag push clean help migrate
@@ -33,12 +34,18 @@ tag:
 	@echo "Tagged: $(TAG)"
 	@echo "Tagged: $(LATEST_TAG)"
 
-# Push the image to the registry
+# Push the image to the registry (with retries for large images)
 push:
 	@echo "Pushing $(TAG)..."
-	docker push $(TAG)
+	@for i in $$(seq 1 $(PUSH_RETRIES)); do \
+		docker push $(TAG) && break || \
+		{ echo "Push attempt $$i failed, retrying..."; sleep 5; }; \
+	done
 	@echo "Pushing $(LATEST_TAG)..."
-	docker push $(LATEST_TAG)
+	@for i in $$(seq 1 $(PUSH_RETRIES)); do \
+		docker push $(LATEST_TAG) && break || \
+		{ echo "Push attempt $$i failed, retrying..."; sleep 5; }; \
+	done
 	@echo "Push complete"
 
 # Clean up local images
